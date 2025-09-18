@@ -1,5 +1,5 @@
 # High Dimension Analysis
-
+Author: **Christy Lai**, **Vincent Zhou**
 
 ## 📈 Project Overview
 
