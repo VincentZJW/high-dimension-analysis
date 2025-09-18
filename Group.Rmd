@@ -14,13 +14,65 @@ library(visdat)
 stock <- read_csv("Data/SampleA.csv")
 ```
 
-# IDA for the Data
+# IDA and EDA
+### Check missing values and data types
 ```{r}
-vis_miss(stock)
-vis_dat(stock)
+vis_miss(stock) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+vis_dat(stock) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
 ```
 
 ```{r}
-
+# Transform to Date format
+stock <- stock %>%
+  mutate(
+    year = str_extract(Date, "\\d{4}"),
+    month = str_extract(Date, "(?<=M)\\d+"),
+    month = str_pad(month, width = 2, pad = "0"),
+    Date = paste0(year, "-", month),
+    Date = as.Date(paste0(Date, "-01"))
+  ) %>%
+  select(-year, -month)
 ```
 
+### Check for outliers using z-scores 
+
+```{r}
+# Compute z-scores for each stock
+stock_z <- stock %>%
+  mutate(across(-Date, ~ scale(.)[, 1], .names = "{.col}_z"))
+
+stock_z_long <- stock_z %>%
+  pivot_longer(
+    cols = ends_with("_z"),
+    names_to = "Stock_z",
+    values_to = "Z_Score"
+  ) %>%
+  mutate(
+    Stock = str_remove(Stock_z, "_z") 
+  )
+
+# Filter rows where abs(z-score) > 3 (3-sigma outliers)
+outlier_df <- stock_z_long %>%
+  filter(abs(Z_Score) > 3) %>%
+  select(Date, Stock, Z_Score) %>%
+  arrange(desc(abs(Z_Score)))
+
+# join with raw returns
+outlier_df <- outlier_df %>%
+  left_join(stock %>% 
+              pivot_longer(-Date, names_to = "Stock", values_to = "Return"),
+            by = c("Date", "Stock"))
+
+# View as tibble
+top_outlier <- head(outlier_df,5)
+```
+
+### Visualize the outliers
