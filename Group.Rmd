@@ -75,11 +75,10 @@ outlier_df <- outlier_df %>%
 top_outlier <- head(outlier_df,5)
 ```
 
-### Visualize the outliers
 ```{r}
 # Per-stock summary stats
-long <- stocks %>% 
-  pivot_longer(-date, names_to = "stock", values_to = "ret")
+long <- stock %>% 
+  pivot_longer(-Date, names_to = "stock", values_to = "ret")
 summ <- long %>%
   group_by(stock) %>%
   summarise(
@@ -97,26 +96,44 @@ summ <- long %>%
 summ %>% slice_head(n = 12)
 ```
 
+### Boxplot of top volatile stocks
 ```{r}
 top9 <- summ %>% slice_max(sd, n = pmin(9, nrow(summ))) %>% pull(stock)
-stocks %>%
-  select(date, all_of(top9)) %>%
-  pivot_longer(-date, names_to = "stock", values_to = "ret") %>%
+stock %>%
+  select(Date, all_of(top9)) %>%
+  pivot_longer(-Date, names_to = "stock", values_to = "ret") %>%
   ggplot(aes(stock, ret)) +
   geom_boxplot(outlier.alpha = 0.5) +
   coord_flip() +
-  labs(title = "Return distributions — top9 volatile stocks", x = NULL, y = "Monthly return") +
+  labs(title = "Return distributions — top9 volatile stock", x = NULL, y = "Monthly return") +
   theme_minimal()
 ```
 
+### Time series of top volatile stocks
 ```{r}
-stocks %>%
-  select(date, all_of(top9)) %>%
-  pivot_longer(-date, names_to = "stock", values_to = "ret") %>%
-  ggplot(aes(date, ret)) +
+stock %>%
+  select(Date, all_of(top9)) %>%
+  pivot_longer(-Date, names_to = "stock", values_to = "ret") %>%
+  ggplot(aes(Date, ret)) +
   geom_line(linewidth = 0.3) +
   facet_wrap(~ stock, scales = "free_y") +
-  labs(title = "Monthly returns over time — top9 volatile stocks", x = NULL, y = "Return") +
+  labs(title = "Monthly returns over time — top9 volatile stock", x = NULL, y = "Return") +
   theme_minimal()
+```
+
+### Check duplicates
+```{r}
+#Check duplicate value
+stock %>% filter(duplicated(.))
+```
+
+### Check for missing months
+```{r}
+# Check for missing months
+seq_months <- tibble(Date = seq(min(stock$Date, na.rm = TRUE),
+                                max(stock$Date, na.rm = TRUE),
+                                by = "month"))
+missing_months <- seq_months %>% 
+  anti_join(stock %>% distinct(Date), by = "Date")
 ```
 
