@@ -1,0 +1,26 @@
+---
+title: "Group"
+output: html_document
+---
+
+```{r, inlude=FALSE}}
+library(tidyverse)
+library(visdat)
+```
+
+# Introduction
+```{r}
+# Load the data
+stock <- read_csv("Data/SampleA.csv")
+```
+
+# IDA for the Data
+```{r}
+vis_miss(stock)
+vis_dat(stock)
+```
+
+```{r}
+
+```
+
