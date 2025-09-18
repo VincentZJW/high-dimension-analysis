@@ -76,3 +76,47 @@ top_outlier <- head(outlier_df,5)
 ```
 
 ### Visualize the outliers
+```{r}
+# Per-stock summary stats
+long <- stocks %>% 
+  pivot_longer(-date, names_to = "stock", values_to = "ret")
+summ <- long %>%
+  group_by(stock) %>%
+  summarise(
+    n = sum(!is.na(ret)),
+    miss_rate = mean(is.na(ret)),
+    mean = mean(ret, na.rm = TRUE),
+    sd = sd(ret, na.rm = TRUE),
+    min = min(ret, na.rm = TRUE),
+    p25 = quantile(ret, 0.25, na.rm = TRUE),
+    median = median(ret, na.rm = TRUE),
+    p75 = quantile(ret, 0.75, na.rm = TRUE),
+    max = max(ret, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% arrange(desc(sd))
+summ %>% slice_head(n = 12)
+```
+
+```{r}
+top9 <- summ %>% slice_max(sd, n = pmin(9, nrow(summ))) %>% pull(stock)
+stocks %>%
+  select(date, all_of(top9)) %>%
+  pivot_longer(-date, names_to = "stock", values_to = "ret") %>%
+  ggplot(aes(stock, ret)) +
+  geom_boxplot(outlier.alpha = 0.5) +
+  coord_flip() +
+  labs(title = "Return distributions — top9 volatile stocks", x = NULL, y = "Monthly return") +
+  theme_minimal()
+```
+
+```{r}
+stocks %>%
+  select(date, all_of(top9)) %>%
+  pivot_longer(-date, names_to = "stock", values_to = "ret") %>%
+  ggplot(aes(date, ret)) +
+  geom_line(linewidth = 0.3) +
+  facet_wrap(~ stock, scales = "free_y") +
+  labs(title = "Monthly returns over time — top9 volatile stocks", x = NULL, y = "Return") +
+  theme_minimal()
+```
+
