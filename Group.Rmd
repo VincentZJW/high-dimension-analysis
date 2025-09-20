@@ -151,31 +151,56 @@ missing_months <- seq_months %>%
 ```
 
 ### Industry summary
-```{r}
+
+```{r ind_move, fig.cap="Stock Price Movement by industry"}
 # Extract industry from stock names
 stock_ind <- long %>%
   mutate(ind = str_extract(stock, "^[A-Za-z]+"))
 
-# Summary by industry
-industry_summary <- stock_ind %>%
-  group_by(ind) %>%
-  summarise(
-    n_stocks = n_distinct(stock),
-    mean_ret = mean(ret, na.rm=TRUE),
-    sd_ret = sd(ret, na.rm=TRUE))
-industry_summary
+# Industry movement
+ind_move <- stock_ind %>% 
+  group_by(Date, ind) %>%
+  summarise(mean_ret = mean(ret))
 
-ggplot(stock_ind, aes(ind, ret)) + 
-  geom_violin(trim=TRUE) + 
-  coord_flip() +
+# Time series
+ggplot(ind_move, aes(x = Date)) +
+  geom_line(aes(y = mean_ret), color = "black") +
+  facet_wrap(~ind) +
   theme_minimal() +
-  labs(title = "Return distributions by industry", 
-       x = "Industry", 
-       y = "Return")
+  labs(
+    title = "Industry mean returns over time",
+    x = "Date",
+    y = "Return") +
+  theme(legend.position = "bottom")
+
 ```
+
+Industry B, D, and E have more fluctuations, while industry F and H are more stable.  
+
+```{r cor, tbl.cap="Correlation between industry mean returns and market return"}
+ind_wide <- ind_move %>%
+  select(Date, ind, mean_ret, MarketReturn) %>%
+  pivot_wider(names_from = ind, values_from = mean_ret)
+
+ind_wide_num <- ind_wide %>%
+  mutate(across(where(is.character), as.numeric)) %>% 
+  as.data.frame() %>%
+  select(-Date)
+
+# Compute correlation
+cor_mat <- cor(ind_wide_num, use = "pairwise.complete.obs")
+
+# Turn into table
+cor_tbl <- as.data.frame(round(cor_mat, 3))
+
+knitr::kable(cor_tbl)
+```
+
+Industry I, H, and E are highly correlated with market return, and with each other. Industry G is the least correlated.  
+
 # PCA
 
-```{r, fig.cap="Scree plot of PCA"}
+```{r scree, fig.cap="Scree plot of PCA"}
 # Prepare data for PCA
 stock_pca <- stock %>% 
   select(-Date) %>% 
@@ -191,18 +216,57 @@ pca <- prcomp(stock_pca_std,
 screeplot(pca, type = "lines")
 ```
 
+PCA is conducted after standardizing the data. 3 PCs are selected as the elbow point is at PC3 in the scree plot, in total explain 36% of total variance as shown in \@ref(tbl:pca_summary).  
 
+```{r pc12, fig.cap="Centroids of industries on PC1 & PC2"}
+# Get PC1 and PC2 industry scores
+load <- as.data.frame(pca$rotation[,1:3]) %>%
+  rownames_to_column("stock")
 
-PCA is conducted after standardizing the data. 3 PCs are selected as the elbow point is at PC3 from the scree plot.  
+load$industry <- substr(load$stock, 1, 1)
 
-```{r biplot, fig.cap="Biplot of PCA"}
-# PCA biplot
-biplot(pca)
+industry_centroids <- load %>%
+  group_by(industry) %>%
+  summarise(PC1 = mean(PC1), 
+            PC2 = mean(PC2),
+            PC3 = mean(PC3))
+
+# Plot centroids
+ggplot(industry_centroids, 
+       aes(PC1, PC2, color = industry)) +
+  geom_point(size=4) +
+  geom_text(aes(label = industry), hjust=-1, vjust=-0.5) +
+  theme_minimal() +
+  labs(title="Industry centroids on PC1 & PC2") + 
+  guides(color = "none")
 ```
 
-
+The industry centroids show that industry D (Manufacturing), G (Retail Trade) are high on PC1, industry H (Finance, Insurance and Real Estate), B (Mining) are high on PC2, and industry F (Wholesale Trade) is high on both, which is considered an outlier. Industry B (Mining) is very high on PC3 in \@ref(tbl:pca_loading). PC1 captures the largest portion of variance across all stock returns. In the context of financial data, this corresponds to the systematic risk, i.e., the component of returns that affects many stocks simultaneously and cannot be diversified away. Since the PC2 are uncorrelated, industries with high importance to PC2 and PC3, industry F and B, could be considered to have unique industry variations (idiosyncratic risk).  
 
 
 
 
 # References
+
+```{r pca_summary, tbl.cap="Variance explained by PC1–PC3"}}
+var_explained <- pca$sdev^2
+prop_var <- var_explained / sum(var_explained)
+cum_var <- cumsum(prop_var)
+
+# Combine into a table
+pc_summary <- data.frame(
+  PC = paste0("PC", 1:length(var_explained)),
+  Variance = round(var_explained, 4),
+  Proportion = round(prop_var, 4),
+  Cumulative = round(cum_var, 4)
+)
+
+knitr::kable(pc_summary[1:3, ])
+```
+
+
+```{r pca_loading, tbl.cap="Loadings by Industry for PC1, PC2, PC3"}
+
+knitr::kable(industry_centroids)
+```
+
