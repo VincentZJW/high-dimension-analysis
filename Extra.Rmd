@@ -1,0 +1,99 @@
+```{r}
+# ----- Build X (T x N) from 'stock' and standardise -----
+X <- stock %>%
+  dplyr::select(-Date) %>%
+  as.matrix()
+
+# mean-impute each column (transparent + simple)
+X <- apply(X, 2, function(x) { x[is.na(x)] <- mean(x, na.rm = TRUE); x })
+
+# standardise over time so Euclidean distance ~ correlation structure
+Y  <- scale(X)          # T x N
+Yc <- t(Y)              # N x T (rows = stocks)
+
+# preserve stock names for later plots
+if (is.null(colnames(X))) colnames(X) <- paste0("S", seq_len(ncol(X)))
+rownames(Yc) <- colnames(X)
+
+```
+
+
+```{r}
+library(MASS)    # isoMDS
+library(mclust)  # Mclust, adjustedRandIndex
+library(ggplot2)
+
+# distances between stocks
+d_stocks <- dist(Yc, method = "euclidean")
+
+# Ward.D2
+hc <- hclust(d_stocks, method = "ward.D2")
+k  <- 3
+cl_hier <- cutree(hc, k = k)
+
+# visual check
+plot(hc, labels = FALSE, main = "Hierarchical clustering (Ward.D2)")
+rect.hclust(hc, k = k, border = 2:5)
+
+# k-means comparison
+set.seed(1)
+km <- kmeans(Yc, centers = k, nstart = 50)
+cl_km <- km$cluster
+ari_hc_km <- adjustedRandIndex(cl_hier, cl_km)
+ari_hc_km
+
+```
+
+```{r}
+# Classical MDS (2D) with fit measures
+mds <- cmdscale(d_stocks, k = 2, eig = TRUE)
+
+mds_xy <- tibble::as_tibble(mds$points, .name_repair = "minimal")
+names(mds_xy) <- c("Dim1","Dim2")
+mds_xy$stock      <- rownames(mds$points)
+mds_xy$cluster_hc <- factor(cl_hier)
+
+# Plot (color by hierarchical clusters; no shape mapping)
+ggplot(mds_xy, aes(Dim1, Dim2, color = cluster_hc, label = stock)) +
+  geom_point(alpha = 0.85) +
+  geom_text(check_overlap = TRUE, size = 2, vjust = -0.5) +
+  labs(title = sprintf("Classical MDS of stocks (Euclidean distance)\nGoF: %.3f / %.3f",
+                       mds$GOF[1], mds$GOF[2]),
+       x = "Dim1", y = "Dim2") +
+  guides(shape = "none")
+
+# Non-metric MDS (isoMDS)
+iso <- isoMDS(d_stocks)
+iso_xy <- tibble::as_tibble(iso$points)
+names(iso_xy) <- c("Dim1","Dim2")
+iso_xy$stock      <- rownames(mds$points)
+iso_xy$cluster_hc <- factor(cl_hier)
+
+ggplot(iso_xy, aes(Dim1, Dim2, color = cluster_hc, label = stock)) +
+  geom_point(alpha = 0.85) +
+  geom_text(check_overlap = TRUE, size = 2, vjust = -0.5) +
+  labs(title = "Non-metric MDS (isoMDS)", x = "Dim1", y = "Dim2")
+
+```
+
+```{r}
+set.seed(2)
+gmm <- Mclust(Yc)                # auto-selects G and covariance by BIC
+cl_gmm <- gmm$classification
+
+# compare solutions
+c(ARI_HC_vs_KM  = adjustedRandIndex(cl_hier, cl_km),
+  ARI_HC_vs_GMM = adjustedRandIndex(cl_hier, cl_gmm),
+  ARI_KM_vs_GMM = adjustedRandIndex(cl_km, cl_gmm))
+
+# Plot GMM clusters on the classical MDS map
+mds_xy$cluster_gmm <- factor(cl_gmm)
+ggplot(mds_xy, aes(Dim1, Dim2, color = cluster_gmm, label = stock)) +
+  geom_point(alpha = 0.9) +
+  geom_text(check_overlap = TRUE, size = 2, vjust = -0.5) +
+  labs(title = sprintf("GMM clusters on MDS map (G=%d, %s)", gmm$G, gmm$modelName),
+       x = "Dim1", y = "Dim2")
+
+```
+
+
