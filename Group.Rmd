@@ -1,9 +1,11 @@
 ---
 title: "Group"
-output: html_document
+output: 
+  bookdown::html_document2
+echo: FALSE
 ---
 
-```{r, inlude=FALSE}}
+```{r, inlude=FALSE}
 library(tidyverse)
 library(visdat)
 ```
@@ -12,6 +14,7 @@ library(visdat)
 ```{r}
 # Load the data
 stock <- read_csv("Data/SampleA.csv")
+market <- read_csv("Data/Market.csv")
 ```
 
 # IDA and EDA
@@ -32,6 +35,16 @@ vis_dat(stock) +
 ```{r}
 # Transform to Date format
 stock <- stock %>%
+  mutate(
+    year = str_extract(Date, "\\d{4}"),
+    month = str_extract(Date, "(?<=M)\\d+"),
+    month = str_pad(month, width = 2, pad = "0"),
+    Date = paste0(year, "-", month),
+    Date = as.Date(paste0(Date, "-01"))
+  ) %>%
+  select(-year, -month)
+
+market <- market %>%
   mutate(
     year = str_extract(Date, "\\d{4}"),
     month = str_extract(Date, "(?<=M)\\d+"),
@@ -137,3 +150,59 @@ missing_months <- seq_months %>%
   anti_join(stock %>% distinct(Date), by = "Date")
 ```
 
+### Industry summary
+```{r}
+# Extract industry from stock names
+stock_ind <- long %>%
+  mutate(ind = str_extract(stock, "^[A-Za-z]+"))
+
+# Summary by industry
+industry_summary <- stock_ind %>%
+  group_by(ind) %>%
+  summarise(
+    n_stocks = n_distinct(stock),
+    mean_ret = mean(ret, na.rm=TRUE),
+    sd_ret = sd(ret, na.rm=TRUE))
+industry_summary
+
+ggplot(stock_ind, aes(ind, ret)) + 
+  geom_violin(trim=TRUE) + 
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Return distributions by industry", 
+       x = "Industry", 
+       y = "Return")
+```
+# PCA
+
+```{r, fig.cap="Scree plot of PCA"}
+# Prepare data for PCA
+stock_pca <- stock %>% 
+  select(-Date) %>% 
+  as.matrix()
+
+stock_pca_std <- scale(stock_pca)
+
+# PCA
+pca <- prcomp(stock_pca_std, 
+              center = FALSE, 
+              scale. = FALSE)
+
+screeplot(pca, type = "lines")
+```
+
+
+
+PCA is conducted after standardizing the data. 3 PCs are selected as the elbow point is at PC3 from the scree plot.  
+
+```{r biplot, fig.cap="Biplot of PCA"}
+# PCA biplot
+biplot(pca)
+```
+
+
+
+
+
+
+# References
