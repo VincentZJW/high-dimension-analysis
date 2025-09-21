@@ -359,6 +359,8 @@ knitr::kable(stock_counts, caption = "Number of stocks per industry in dataset")
 ## Factor Modelling
 ```{r}
 ### Scree plot of eigenvalues
+stock_only <- stock |> select(-Date)
+X <- as.matrix(stock_only)
 eig_vals <- eigen(cor(X))$values
 eig_df <- data.frame(
   PC = 1:length(eig_vals),
@@ -380,7 +382,7 @@ ggplot(eig_df, aes(x = PC, y = Eigenvalue)) +
 
 ```{r}
 # Use correlation matrix eigenvalues for a quick factor count (Kaiser is liberal; cap at 5)
-X <- as.matrix(stock_only)
+
 eig_vals <- eigen(cor(X))$values
 kaiser_k <- sum(eig_vals > 1)
 k <- min(3, kaiser_k)
@@ -398,3 +400,55 @@ fa_load <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
   summarise(across(starts_with("Factor"), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
 
 ```
+
+
+
+
+```{r}
+#scree plot
+fa_promax <- factanal(X, factors = k, rotation = "promax",
+               scores = "Bartlett", lower = 0.05)
+
+fa_promax_df <- tidy(fa_promax)
+
+ggplot(fa_promax_df,aes(x=fl1,y=fl2, label=variable))+
+geom_segment(aes(xend=fl1, yend=fl2,x=0,y=0),
+arrow = arrow())+ geom_text(color='red',nudge_y = -0.05)
+
+
+
+
+```
+
+```{r}
+# install.packages("ggrepel")  # run once
+library(ggplot2)
+library(ggrepel)
+# library(broom)  # if you need tidy()
+
+fa_promax <- factanal(X, factors = k, rotation = "promax",
+                      scores = "Bartlett", lower = 0.05)
+
+fa_promax_df <- tidy(fa_promax)  # assumes columns: variable, fl1, fl2
+
+ggplot(fa_promax_df, aes(x = fl1, y = fl2, label = variable)) +
+  geom_segment(aes(x = 0, y = 0, xend = fl1, yend = fl2),
+               arrow = arrow(length = unit(2, "mm")), linewidth = 0.2) +
+  geom_point(size = 0) +
+  geom_text_repel(
+    max.overlaps = Inf,       # repel instead of dropping labels
+    box.padding = 0.25,       # space around labels
+    point.padding = 0.1,
+    min.segment.length = 0,   # always draw leader lines if needed
+    seed = 123,               # reproducible placement
+    color = "red",            # keep your red labels
+    size = 3
+  ) +
+  coord_equal() +
+  expand_limits(x = c(-1.1, 1.1), y = c(-1.1, 1.1)) +
+  theme_minimal()
+
+
+
+```
+
