@@ -18,10 +18,11 @@ rownames(Yc) <- colnames(X)
 ```
 
 
-```{r}
+```{r, fig.cap="Dendrogram of clustering results"}
 library(MASS)    # isoMDS
 library(mclust)  # Mclust, adjustedRandIndex
-library(ggplot2)
+library(tidyverse)
+library(factoextra)
 
 # distances between stocks
 d_stocks <- dist(Yc, method = "euclidean")
@@ -32,17 +33,143 @@ k  <- 3
 cl_hier <- cutree(hc, k = k)
 
 # visual check
-plot(hc, labels = FALSE, main = "Hierarchical clustering (Ward.D2)")
-rect.hclust(hc, k = k, border = 2:5)
+ fviz_dend(hc, cex = 0, xlab = "",
+          ylab = "", main = "",
+          ggtheme = theme_bw(), lwd = 1.5,
+          k = 3, rect = TRUE, color_labels_by_k = FALSE) +
+  theme(text = element_text(size = 26),
+        axis.text.x = element_blank(),
+        plot.margin = margin(50, 20, 60, 20)) +
+  coord_cartesian(clip = "off")
+```
 
+3 cluster solution is suggested, even it is not as stable as 2 cluster solution, the size of clusters would be more balanced.  
+
+```{r, tbl.cap="Hierarchical cluster composition percentage by industry"}
+
+hc_result <- cutree(hc, k = 3) %>% 
+  as.data.frame() %>%
+  rownames_to_column("stock") %>% 
+  mutate(industry = substr(stock, 1, 1)) %>% 
+  rename(cluster = ".")
+
+# Count per cluster and industry, calculate percentage
+cluster_industry_percent <- hc_result %>%
+  group_by(cluster, industry) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(cluster) %>%
+  mutate(percent = round(100 * count / sum(count), 2)) %>%
+  ungroup() %>%
+  dplyr::select(-count) %>%
+  pivot_wider(names_from = cluster, values_from = percent, names_prefix = "Cluster_")
+
+knitr::kable(cluster_industry_percent)
+```
+
+Cluster 1 is dominated by industry H, D, and I, cluster 2 is dominated by industry H, and E, and cluster 3 only contain cluster H.  
+
+```{r hc_cor, fig.cap="Relationships of Hierarchical cluster 1-3 with market return"}
+
+hc_cor <- hc_result %>% 
+  right_join(long) %>% 
+  group_by(cluster, Date) %>%
+  summarize(mean_ret = mean(ret)) %>% 
+  left_join(market) %>% 
+  as.data.frame()
+
+hc_cor_labels <- hc_cor %>%
+  group_by(cluster) %>%
+  summarize(
+    cor = cor(MarketReturn, mean_ret, use = "complete.obs"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = paste0("cor = ", sprintf("%.2f", cor)),
+    x = Inf,
+    y = -0.1
+  )
+
+ggplot(hc_cor, aes(x = MarketReturn, y = mean_ret)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm") +
+  geom_text(data = hc_cor_labels, aes(x = x, y = y, label = label),
+            hjust = 1.1, vjust = 1.5, inherit.aes = FALSE) +
+  facet_wrap(~cluster, ncol = 1, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Relationship between Hierarchical cluster 1–3 and market return",
+       x = "Market Return", y = "Average Cluster Return")
+```
+
+The first 2 clusters are positively correlated with market return, while cluster 3 is slightly positive correlated. Since H is the largest industry, is highly correlated with market return, and dominates all the 3 clusters, it is not surprising that all the 3 clusters are positively correlated with market return. In relative terms, cluster 1 and 2 captures more systematic risk than cluster 3.  
+
+
+```{r,  tbl.cap="Kmeans cluster composition percentage by industry"}
 # k-means comparison
 set.seed(1)
-km <- kmeans(Yc, centers = k, nstart = 50)
+km <- kmeans(Yc, centers = 3, nstart = 50)
+
 cl_km <- km$cluster
-ari_hc_km <- adjustedRandIndex(cl_hier, cl_km)
-ari_hc_km
+
+km_result <- cl_km %>% 
+  as.data.frame() %>%
+  rownames_to_column("stock") %>% 
+  mutate(industry = substr(stock, 1, 1)) %>% 
+  rename(cluster = ".")
+
+# Count per cluster and industry, calculate percentage
+km_industry_percent <- km_result %>%
+  group_by(cluster, industry) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(cluster) %>%
+  mutate(percent = round(100 * count / sum(count), 2)) %>%
+  ungroup() %>%
+  dplyr::select(-count) %>%
+  pivot_wider(names_from = cluster, values_from = percent, names_prefix = "Cluster_")
+
+knitr::kable(km_industry_percent)
 
 ```
+
+```{r km_cor, fig.cap="Relationships of Kmeans cluster 1-3 with market return"}
+
+km_cor <- km_result %>% 
+  right_join(long) %>% 
+  group_by(cluster, Date) %>%
+  summarize(mean_ret = mean(ret)) %>% 
+  left_join(market) %>% 
+  as.data.frame()
+
+km_cor_labels <- km_cor %>%
+  group_by(cluster) %>%
+  summarize(
+    cor = cor(MarketReturn, mean_ret, use = "complete.obs"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = paste0("cor = ", sprintf("%.2f", cor)),
+    x = Inf,
+    y = -0.1
+  )
+
+ggplot(km_cor, aes(x = MarketReturn, y = mean_ret)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm") +
+  geom_text(data = km_cor_labels, aes(x = x, y = y, label = label),
+            hjust = 1.1, vjust = 1.5, inherit.aes = FALSE) +
+  facet_wrap(~cluster, ncol = 1, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Relationship between Kmeans cluster 1–3 and market return",
+       x = "Market Return", y = "Average Cluster Return")
+```
+
+The Kmeans cluster industry composition and correlation with market return are similar. Cluster 2 and 3 is highly correlated with market return, and cluster 1, which is purely formed by industry H, is slightly correlated with market return.  
+
+```{r}
+ari_hc_km <- adjustedRandIndex(cl_hier, cl_km)
+ari_hc_km
+```
+
+The adjusted Rand index (ARI) between hierarchical clustering and k-means clustering is 0.35, indicating a moderate agreement between the two clustering methods. However, clustering is not considered the best suit for this data for discovering systematic risk and  idiosyncratic risk, as the clusters are highly dominated by single industry, and 2 out of 3 clusters in both solutions are highly correlated with market return.  
 
 ```{r}
 # Classical MDS (2D) with fit measures

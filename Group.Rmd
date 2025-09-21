@@ -153,11 +153,27 @@ missing_months <- seq_months %>%
 
 ### Industry summary
 
-```{r, fig.cap="Stock Price Movement by industry"}
+```{r, tbl.cap="Industry summary statistics"}}
 
 # Extract industry from stock names
 stock_ind <- long %>%
   mutate(ind = str_extract(stock, "^[A-Za-z]+"))
+
+ind_summary <- stock_ind %>%
+  group_by(ind) %>%
+  summarise(
+    n_stocks = n_distinct(stock),
+    mean_ret = mean(ret, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange()
+
+knitr::kable(ind_summary)
+```
+
+H is the largest industry while B and G are the smallest. Industry D has the highest mean return, while industry G has the lowest.  
+
+```{r, fig.cap="Stock Price Movement by industry"}
 
 # Industry movement
 ind_move <- stock_ind %>% 
@@ -274,16 +290,31 @@ ggplot(scores_long, aes(x = Date)) +
 ```
 
 ```{r pca_cor, tbl.cap="Relationships of PC1–PC3 with market return"}
+
+pca_cor_labels <- scores_long %>%
+  group_by(PC) %>%
+  summarize(
+    cor = cor(Market, Score, use = "complete.obs"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = paste0("cor = ", sprintf("%.2f", cor)),
+    x = Inf,
+    y = Inf
+  )
+
 ggplot(scores_long, aes(x = Market, y = Score)) +
   geom_point(alpha = 0.6) +
   geom_smooth(method = "lm") +
+  geom_text(data = pca_cor_labels, aes(x = x, y = y, label = label),
+            hjust = 1.1, vjust = 1.5, inherit.aes = FALSE) +
   facet_wrap(~PC, ncol = 1, scales = "free_y") +
   theme_minimal() +
   labs(title = "Relationship between PC1–PC3 and market return",
        x = "Market Return", y = "PC Score")
 ```
 
-It is clear that market is moving negatively with PC1, while PC2 and PC3 do not show clear coorrelation with market return. This confirms the earlier observation that PC1 is slightly negatively correlated with market return.  
+It is clear that market is moving negatively with PC1, PC2 is slightly negative, and PC3 do not show clear coorrelation with market return. This confirms the earlier observation that PC1 is slightly negatively correlated with market return.  
 
 To summarize, industry E, H, and I are considered to contain more systematic risk, while industry F and B are considered to contain more idiosyncratic risk.  
 
