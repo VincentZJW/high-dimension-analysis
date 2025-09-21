@@ -14,6 +14,9 @@ library(kableExtra)
 ```
 
 # Introduction
+
+This report examines monthly returns for up to 100 NYSE stocks (2005–2019) alongside the S&P 500 to distinguish common (systematic) movement from stock-specific variation. We map each ticker to its industry via the leading letter, then use Principal Component Analysis (PCA) and Factor Analysis (FA) to study co-movement and industry heterogeneity, and to identify stocks that most closely track the market. Before those models, we run an initial data audit and exploratory analysis to confirm the dataset is tidy, complete, and suitable for high-dimensional methods.
+
 ```{r}
 # Load the data
 stock <- read_csv("Data/SampleA.csv")
