@@ -1,0 +1,311 @@
+---
+title: "Group"
+output: 
+  bookdown::html_document2
+echo: FALSE
+message: FALSE
+warning: FALSE
+---
+
+```{r, inlude=FALSE}
+library(tidyverse)
+library(visdat)
+library(kableExtra)
+```
+
+# Introduction
+```{r}
+# Load the data
+stock <- read_csv("Data/SampleA.csv")
+market <- read_csv("Data/Market.csv")
+```
+
+# IDA and EDA
+
+Before proceeding to high-dimensional modelling, we conducted an initial data audit and exploratory analysis to ensure the dataset is suitable for PCA, factor modelling and other analysing approaches. This involved checking data completeness, types, summary statistics, and several visualisations.
+
+## Data Quality and Formats
+
+We have checked the data types and missingness patterns using the `visdat` package. The dataset contains monthly returns for various stocks, with no missing values present. Furthermore, we verified that there are no duplicate entries and there are no missing months in the time series. The data are all numerical, except for the date column.
+
+```{r}
+#| eval: false
+#Check duplicate value
+stock %>% filter(duplicated(.))
+```
+
+```{r}
+#| eval: false
+# Check for missing months
+seq_months <- tibble(Date = seq(min(stock$Date, na.rm = TRUE),
+                                max(stock$Date, na.rm = TRUE),
+                                by = "month"))
+missing_months <- seq_months %>% 
+  anti_join(stock %>% distinct(Date), by = "Date")
+```
+
+```{r}
+# Transform to Date format
+stock <- stock %>%
+  mutate(
+    year = str_extract(Date, "\\d{4}"),
+    month = str_extract(Date, "(?<=M)\\d+"),
+    month = str_pad(month, width = 2, pad = "0"),
+    Date = paste0(year, "-", month),
+    Date = as.Date(paste0(Date, "-01"))
+  ) %>%
+  select(-year, -month)
+
+market <- market %>%
+  mutate(
+    year = str_extract(Date, "\\d{4}"),
+    month = str_extract(Date, "(?<=M)\\d+"),
+    month = str_pad(month, width = 2, pad = "0"),
+    Date = paste0(year, "-", month),
+    Date = as.Date(paste0(Date, "-01"))
+  ) %>%
+  select(-year, -month)
+```
+
+## Check for Outliers Using Z-Scores 
+
+We identify potential outliers using the 3-sigma rule. This method flags any monthly return whose z-score exceeds ±3 standard deviations from its stock's historical mean. Z-scores were computed for each stock column individually, then reshaped and merged with the original data to inspect extreme return events.
+
+```{r}
+# Compute z-scores for each stock
+stock_z <- stock %>%
+  mutate(across(-Date, ~ scale(.)[, 1], .names = "{.col}_z"))
+
+stock_z_long <- stock_z %>%
+  pivot_longer(
+    cols = ends_with("_z"),
+    names_to = "Stock_z",
+    values_to = "Z_Score"
+  ) %>%
+  mutate(
+    Stock = str_remove(Stock_z, "_z") 
+  )
+
+# Filter rows where abs(z-score) > 3 (3-sigma outliers)
+outlier_df <- stock_z_long %>%
+  filter(abs(Z_Score) > 3) %>%
+  select(Date, Stock, Z_Score) %>%
+  arrange(desc(abs(Z_Score)))
+
+# join with raw returns
+outlier_df <- outlier_df %>%
+  left_join(stock %>% 
+              pivot_longer(-Date, names_to = "Stock", values_to = "Return"),
+            by = c("Date", "Stock"))
+```
+
+
+```{r}
+#| label: tbl-outlier_table
+#| tbl-cap: "Top 6 outliers detected using Z-scores"
+# View as tibble
+top_outlier <- head(outlier_df,6)
+
+kable(top_outlier)
+```
+
+In @tbl-outlier_table, we present the top 5 outliers with the highest absolute z-scores. For instance, stock D79122 recorded an extreme positive return of 4.15 on September 2018, corresponding to a z-score of 10.13. Other notable events occurred across several industries, including Finance (H89011, H89548, H89050) and Services (I90394), particularly clustered around the 2008–2009 period, which corresponds with the Global Financial Crisis.
+
+
+```{r}
+# Per-stock summary stats
+long <- stock %>% 
+  pivot_longer(-Date, names_to = "stock", values_to = "ret")
+summ <- long %>%
+  group_by(stock) %>%
+  summarise(
+    mean = mean(ret, na.rm = TRUE),
+    sd = sd(ret, na.rm = TRUE),
+    min = min(ret, na.rm = TRUE),
+    p25 = quantile(ret, 0.25, na.rm = TRUE),
+    median = median(ret, na.rm = TRUE),
+    p75 = quantile(ret, 0.75, na.rm = TRUE),
+    max = max(ret, na.rm = TRUE),
+    .groups = "drop"
+  ) %>% arrange(desc(sd))
+```
+
+
+```{r}
+#| label: tbl-statistics-table
+#| tbl-cap: "Summary statistics for stock returns"
+sum_table <- summ %>% slice_head(n = 9)
+kable(sum_table)
+```
+
+@tbl-statistics-table summarizes the top 10 most volatile stocks by standard deviation. D79122 shows the highest volatility and return, aligning with its outlier status. While most stocks have near-zero mean returns, E88332 shows high variability with a negative mean. These results reveal substantial differences in volatility, supporting the use of PCA and factor models to identify common patterns and systematic risk drivers.
+
+
+### Boxplot of top volatile stocks
+```{r}
+top9 <- summ %>% slice_max(sd, n = pmin(9, nrow(summ))) %>% pull(stock)
+```
+
+
+```{r}
+#| label: fig-boxplot
+#| fig-cap: "Return distributions of top 9 volatile stocks"
+stock %>%
+  select(Date, all_of(top9)) %>%
+  pivot_longer(-Date, names_to = "stock", values_to = "ret") %>%
+  ggplot(aes(stock, ret)) +
+  geom_boxplot(outlier.alpha = 0.5) +
+  coord_flip() +
+  labs(title = "Return distributions — top9 volatile stock", 
+       x = NULL, 
+       y = "Monthly return") +
+  theme_minimal()
+```
+
+@fig-boxplot presents return distributions for the top 9 most volatile stocks. While most returns are centered around zero, several stocks exhibit long right tails and extreme outliers—especially D79122, which exceeds a return of 4. These patterns confirm earlier findings and highlight the importance of using PCA and factor models to account for shared variation driven by high-volatility stocks.
+
+### Industry summary
+
+```{r ind_move}
+# Extract industry from stock names
+stock_ind <- long %>%
+  mutate(ind = str_extract(stock, "^[A-Za-z]+"))
+
+# Industry movement
+ind_move <- stock_ind %>% 
+  group_by(Date, ind) %>%
+  summarise(mean_ret = mean(ret))
+```
+
+
+```{r ind_move}
+#| label: fig-industry
+#| fig-cap: "Stock Price Movement by industry"
+# Time series
+ggplot(ind_move, aes(x = Date)) +
+  geom_line(aes(y = mean_ret), color = "black") +
+  facet_wrap(~ind) +
+  theme_minimal() +
+  labs(
+    title = "Industry mean returns over time",
+    x = "Date",
+    y = "Return") +
+  theme(legend.position = "bottom")
+
+```
+
+Industry B, D, and E have more fluctuations, while industry F and H are more stable.  
+
+```{r cor, tbl.cap="Correlation between industry mean returns and market return"}
+ind_wide <- ind_move %>%
+  select(Date, ind, mean_ret) %>%
+  pivot_wider(names_from = ind, values_from = mean_ret)
+
+ind_wide_num <- ind_wide %>%
+  mutate(across(where(is.character), as.numeric)) %>% 
+  as.data.frame() %>%
+  select(-Date)
+
+# Compute correlation
+cor_mat <- cor(ind_wide_num, use = "pairwise.complete.obs")
+
+# Turn into table
+cor_tbl <- as.data.frame(round(cor_mat, 3))
+
+knitr::kable(cor_tbl)
+```
+
+Industry I, H, and E are highly correlated with market return, and with each other. Industry G is the least correlated.  
+
+# PCA
+
+```{r scree, fig.cap="Scree plot of PCA"}
+# Prepare data for PCA
+stock_pca <- stock %>% 
+  select(-Date) %>% 
+  as.matrix()
+
+stock_pca_std <- scale(stock_pca)
+
+# PCA
+pca <- prcomp(stock_pca_std, 
+              center = FALSE, 
+              scale. = FALSE)
+
+screeplot(pca, type = "lines")
+```
+
+PCA is conducted after standardizing the data. 3 PCs are selected as the elbow point is at PC3 in the scree plot, in total explain 36% of total variance as shown in \@ref(tbl:pca_summary).  
+
+```{r pc12, fig.cap="Centroids of industries on PC1 & PC2"}
+# Get PC1 and PC2 industry scores
+load <- as.data.frame(pca$rotation[,1:3]) %>%
+  rownames_to_column("stock")
+
+load$industry <- substr(load$stock, 1, 1)
+
+industry_centroids <- load %>%
+  group_by(industry) %>%
+  summarise(PC1 = mean(PC1), 
+            PC2 = mean(PC2),
+            PC3 = mean(PC3))
+
+# Plot centroids
+ggplot(industry_centroids, 
+       aes(PC1, PC2, color = industry)) +
+  geom_point(size=4) +
+  geom_text(aes(label = industry), hjust=-1, vjust=-0.5) +
+  theme_minimal() +
+  labs(title="Industry centroids on PC1 & PC2") + 
+  guides(color = "none")
+```
+
+The industry centroids show that industry D (Manufacturing), G (Retail Trade) are high on PC1, industry H (Finance, Insurance and Real Estate), B (Mining) are high on PC2, and industry F (Wholesale Trade) is high on both, which is considered an outlier. Industry B (Mining) is very high on PC3 in \@ref(tbl:pca_loading). PC1 captures the largest portion of variance across all stock returns. In the context of financial data, this corresponds to the systematic risk, i.e., the component of returns that affects many stocks simultaneously and cannot be diversified away. Since the PC2 are uncorrelated, industries with high importance to PC2 and PC3, industry F and B, could be considered to have unique industry variations (idiosyncratic risk).  
+
+
+
+
+# References
+
+```{r pca_summary}
+#| tbl-cap: "Variance explained by PC1–PC3"
+var_explained <- pca$sdev^2
+prop_var <- var_explained / sum(var_explained)
+cum_var <- cumsum(prop_var)
+
+# Combine into a table
+pc_summary <- data.frame(
+  PC = paste0("PC", 1:length(var_explained)),
+  Variance = round(var_explained, 4),
+  Proportion = round(prop_var, 4),
+  Cumulative = round(cum_var, 4)
+)
+
+kable(pc_summary[1:3, ])
+```
+
+
+```{r pca_loading}
+#| tbl-cap: "Industry Loadings on PC1, PC2, and PC3"
+kable(industry_centroids)
+```
+
+
+
+
+
+
+# Appendix 
+## Check missing values and data types
+```{r}
+vis_miss(stock) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+vis_dat(stock) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )
+```
