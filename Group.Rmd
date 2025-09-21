@@ -325,3 +325,45 @@ knitr::kable(stock_counts, caption = "Number of stocks per industry in dataset")
 
 ```
 
+## Factor Modelling
+```{r}
+### Scree plot of eigenvalues
+eig_vals <- eigen(cor(X))$values
+eig_df <- data.frame(
+  PC = 1:length(eig_vals),
+  Eigenvalue = eig_vals
+)
+
+ggplot(eig_df, aes(x = PC, y = Eigenvalue)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Scree Plot of Eigenvalues",
+    x = "Principal Component",
+    y = "Eigenvalue"
+  )
+
+```
+
+```{r}
+# Use correlation matrix eigenvalues for a quick factor count (Kaiser is liberal; cap at 5)
+X <- as.matrix(stock_only)
+eig_vals <- eigen(cor(X))$values
+kaiser_k <- sum(eig_vals > 1)
+k <- min(3, kaiser_k)
+
+# Fit factor model with easier convergence per assignment hint
+fa <- factanal(X, factors = k, rotation = "promax",
+               scores = "Bartlett", lower = 0.05)
+
+print(fa, digits = 3, cutoff = 0.3)
+
+# Industry-average loadings (Factor1..FactorK)
+fa_load <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
+  mutate(industry = substr(stock, 1, 1)) %>%
+  group_by(industry) %>%
+  summarise(across(starts_with("Factor"), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+
+```
