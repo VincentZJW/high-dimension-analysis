@@ -311,3 +311,17 @@ knitr::kable(pc_summary[1:3, ])
 knitr::kable(industry_centroids)
 ```
 
+```{r}
+### Count stocks per industry
+stock_counts <- stock %>%
+  select(-Date) %>%
+  colnames() %>%
+  tibble(stock = .) %>%
+  mutate(industry = substr(stock, 1, 1)) %>%
+  count(industry, name = "n_stocks") %>%
+  mutate(share = round(100 * n_stocks / sum(n_stocks), 1))
+
+knitr::kable(stock_counts, caption = "Number of stocks per industry in dataset")
+
+```
+
