@@ -10,6 +10,7 @@ library(tidyverse)
 library(visdat)
 library(pheatmap)
 library(broom)
+library(ggrepel)
 ```
 
 # Introduction
@@ -217,6 +218,36 @@ knitr::kable(cor_tbl)
 ```
 
 Industry I, H, and E are highly correlated with market return, and with each other. Industry G is the least correlated.  
+
+```{r}
+
+
+# stock: has columns Date + stock return columns
+# market: has columns Date + MarketReturn
+
+# 1. Long format
+long <- stock %>%
+  pivot_longer(-Date, names_to = "stock", values_to = "ret") %>%
+  left_join(market, by = "Date")
+
+# 2. Correlations with market
+stock_mkt_cor <- long %>%
+  group_by(stock) %>%
+  summarise(
+    cor_with_market = cor(ret, MarketReturn, use = "complete.obs"),
+    n_obs = sum(!is.na(ret) & !is.na(MarketReturn)),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(cor_with_market))
+
+# 3. Preview top & bottom movers
+head(stock_mkt_cor, 10)    # 10 most correlated with market
+tail(stock_mkt_cor, 10)    # 10 least correlated with market
+
+
+
+```
+
 
 # PCA
 
