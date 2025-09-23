@@ -569,6 +569,33 @@ The PCA results indicate that three principal components capture ~36% of total v
 
 
 ## Recommended Top 5 Stocks
+```{r}
+# Get absolute strongest factor loading for each stock
+df <- rank_tbl %>%
+  rowwise() %>%
+  mutate(max_loading = max(abs(c(F1, F2, F3)))) %>%
+  ungroup()
+
+# Mark top 5 recommended stocks
+top5 <- c("H90000", "H88215", "H75157", "H89050", "H77466")
+df <- df %>%
+  mutate(top_pick = ifelse(stock %in% top5, "Yes", "No"))
+
+# Plot
+ggplot(df, aes(x = uniqueness, y = max_loading, color = top_pick, label = stock)) +
+  geom_point(size = 3) +
+  geom_text_repel(aes(label = ifelse(top_pick == "Yes", stock, "")),
+                  size = 3, box.padding = 0.25, max.overlaps = Inf) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  theme_minimal() +
+  labs(title = "Uniqueness vs Strongest Factor Loading",
+       subtitle = "Top 5 market-like stocks highlighted in red",
+       x = "Uniqueness (idiosyncratic risk)",
+       y = "Strongest Factor Loading (systematic risk)",
+       color = "Top 5 Pick")
+
+```
+
 
 Based on lowest uniqueness and high factor loadings:
 
