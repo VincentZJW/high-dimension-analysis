@@ -197,6 +197,7 @@ ggplot(ind_move, aes(x = Date)) +
 
 Industry B, D, and E have more fluctuations, while industry F and H are more stable.  
 
+## Industry-level correlation matrix with the market return
 ```{r cor, tbl.cap="Correlation between industry mean returns and market return"}
 ind_wide <- ind_move %>% 
   left_join(market) %>% 
@@ -217,37 +218,59 @@ cor_tbl <- as.data.frame(round(cor_mat, 3))
 knitr::kable(cor_tbl)
 ```
 
-Industry I, H, and E are highly correlated with market return, and with each other. Industry G is the least correlated.  
-
 ```{r}
+# Order rows/cols by their correlation with MarketReturn (descending)
+ord <- order(mat[, "MarketReturn"], decreasing = TRUE)
+mat_ord <- mat[ord, ord]
 
-
-# stock: has columns Date + stock return columns
-# market: has columns Date + MarketReturn
-
-# 1. Long format
-long <- stock %>%
-  pivot_longer(-Date, names_to = "stock", values_to = "ret") %>%
-  left_join(market, by = "Date")
-
-# 2. Correlations with market
-stock_mkt_cor <- long %>%
-  group_by(stock) %>%
-  summarise(
-    cor_with_market = cor(ret, MarketReturn, use = "complete.obs"),
-    n_obs = sum(!is.na(ret) & !is.na(MarketReturn)),
-    .groups = "drop"
-  ) %>%
-  arrange(desc(cor_with_market))
-
-# 3. Preview top & bottom movers
-head(stock_mkt_cor, 10)    # 10 most correlated with market
-tail(stock_mkt_cor, 10)    # 10 least correlated with market
-
-
+pheatmap::pheatmap(
+  mat_ord,
+  color = pal,
+  breaks = brks,
+  cluster_rows = FALSE,
+  cluster_cols = FALSE,
+  display_numbers = TRUE,
+  number_format = "%.2f",
+  legend = TRUE,
+  fontsize_number = 8,
+  main = "Correlation Heatmap (ordered by MarketReturn alignment)"
+)
 
 ```
 
+Industry-level correlations reveal that Services (I), Finance (H), and Transportation/Utilities (E) are most closely aligned with the market return (correlations of 0.888, 0.880, and 0.819, respectively). This suggests that these sectors carry the greatest degree of systematic risk, moving strongly with overall market fluctuations. By contrast, Retail Trade (G) has the lowest correlation with the market (0.578), indicating that returns in this sector are more idiosyncratic and less influenced by broad market factors. Industries B, D, and F fall in between, reflecting moderate exposure to systematic risk.
+
+```{r}
+# Add industry label
+stock_mkt_cor2 <- stock_mkt_cor %>%
+  mutate(industry = substr(stock, 1, 1))
+
+# Top / bottom 10 by signed correlation
+knitr::kable(head(stock_mkt_cor2, 10), caption = "Top 10 stocks most positively correlated with Market")
+knitr::kable(tail(stock_mkt_cor2, 10), caption = "Bottom 10 stocks (least / negative correlation)")
+
+# Top 10 positive
+stock_mkt_cor2 %>%
+  slice_max(cor_with_market, n = 10) %>%
+  ggplot(aes(x = reorder(stock, cor_with_market), y = cor_with_market, fill = industry)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top 15 stocks most positively correlated with Market",
+       x = NULL, y = "Correlation with Market") +
+  theme_minimal()
+
+# Bottom 10 
+stock_mkt_cor2 %>%
+  slice_min(cor_with_market, n = 10) %>%
+  ggplot(aes(x = reorder(stock, cor_with_market), y = cor_with_market, fill = industry)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Bottom 15 stocks (least / negatively correlated with Market)",
+       x = NULL, y = "Correlation with Market") +
+  theme_minimal()
+
+```
+The top 10 stocks most correlated with the market are concentrated in Finance (H), Services (I), and Transportation/Utilities (E). The highest co-movers include H88215 and H90000 (Finance), with correlations approaching 1.0, confirming that Finance stocks are the most representative of systematic risk. This is consistent with PCA and factor analysis findings below, where Finance and Services dominate the common factors, while Retail and Wholesale remain largely idiosyncratic.
 
 # PCA
 
@@ -482,11 +505,6 @@ arrow = arrow())+ geom_text(color='red',nudge_y = -0.05)
 ```
 
 ```{r}
-# install.packages("ggrepel")  # run once
-library(ggplot2)
-library(ggrepel)
-# library(broom)  # if you need tidy()
-
 fa_promax <- factanal(X, factors = k, rotation = "promax",
                       scores = "Bartlett", lower = 0.05)
 
@@ -508,8 +526,6 @@ ggplot(fa_promax_df, aes(x = fl1, y = fl2, label = variable)) +
   coord_equal() +
   expand_limits(x = c(-1.1, 1.1), y = c(-1.1, 1.1)) +
   theme_minimal()
-
-
 
 ```
 
