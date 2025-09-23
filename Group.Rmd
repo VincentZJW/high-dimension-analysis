@@ -262,6 +262,33 @@ ggplot(industry_centroids,
 
 The industry centroids show that industry D (Manufacturing), G (Retail Trade) are high on PC1, industry H (Finance, Insurance and Real Estate), B (Mining) are high on PC2, and industry F (Wholesale Trade) is high on both, which is considered an outlier. Industry B (Mining) is very high on PC3. PC1 captures the largest portion of variance across all stock returns. In the context of financial data, this corresponds to the systematic risk, i.e., the component of returns that affects many stocks simultaneously and cannot be diversified away. As mentioned, industry E, H, and I are highly correlated with market return, and they all have a loading of around -0.11 for PC1, which is relatively negative compared to other industries. PC1 could then be considered slightly negatively correlated with market return, and details would be explored later. Since the PC2 are uncorrelated, industries with high importance to PC2 and PC3, industry F and B, could be considered to have unique industry variations (idiosyncratic risk).  
 
+
+## PCA Biplot
+```{r}
+loadings <- as.data.frame(pca$rotation[,1:3]) %>% 
+  rownames_to_column("stock")
+
+ggplot(loadings, aes(PC1, PC2, color = substr(stock,1,1))) +
+  geom_point() +
+  geom_text_repel(aes(label=stock), size=2) +
+  theme_minimal() + 
+ ggtitle("PCA Biplot")
+```
+PC1 (x-axis): This is the first principal component, explaining the largest share of variance across stock returns. Stocks positioned to the left or right differ mainly in how much they load on systematic variation captured by PC1.
+
+PC2 (y-axis): The second principal component, orthogonal to PC1, captures the second-largest independent source of variation. Stocks placed higher or lower reflect differences in this secondary risk/return structure.
+
+Together, PC1 and PC2 capture the two dominant risk factors driving stock co-movements in your dataset.
+
+Stocks with strong loadings on PC1 and small loadings on PC2 are better candidates — they align with the broad market factor rather than unique sector dynamics.
+
+From the plot, these tend to be clustered around the negative side of PC1 with small PC2 loadings (middle-right area).
+
+Conversely, stocks with extreme positive/negative PC2 loadings may reflect unique sector risks and are less suitable as “market representatives.”
+
+This PCA biplot shows how stocks from different industries align on the first two principal components. PC1 captures systematic market risk, while PC2 distinguishes industry-specific or idiosyncratic effects. Industry H stocks drive PC2 variation, while D and E cluster tightly around the systematic factor. For market-representative stock selection, focus on those with strong PC1 loadings and minimal PC2 influence
+
+
 ```{r pca_ts, tbl.cap="Time series of PC1–PC3 with market return"}
 
 scores <- as.data.frame(pca$x[, 1:3]) %>%
