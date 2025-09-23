@@ -434,74 +434,67 @@ The scree plot (see above) showed a steep decline in eigenvalues, with the elbow
 
 ## Fit the Factor Model
 ```{r}
-# Use correlation matrix eigenvalues for a quick factor count (Kaiser is liberal; cap at 5)
+# Prepare matrix
+stock_only <- stock %>% select(-Date)
+X <- as.matrix(stock_only)
 
-eig_vals <- eigen(cor(X))$values
-kaiser_k <- sum(eig_vals > 1)
-k <- min(3, kaiser_k)
-
-# Fit factor model with easier convergence per assignment hint
-fa <- factanal(X, factors = k, rotation = "promax",
+# Estimate 3-factor model with Promax rotation
+fa <- factanal(X, factors = 3, rotation = "promax", 
                scores = "Bartlett", lower = 0.05)
 
 print(fa, digits = 3, cutoff = 0.3)
 
-# Industry-average loadings (Factor1..FactorK)
-fa_load <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
-  mutate(industry = substr(stock, 1, 1)) %>%
-  group_by(industry) %>%
-  summarise(across(starts_with("Factor"), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
-
 ```
+The three-factor model reveals that most of the systematic variation in returns is concentrated in the Finance industry (H), with three distinct but related factors emerging. Factor 1 captures a broad market-finance risk, loading heavily on large H stocks and some capital-intensive firms, while Factor 2 reflects a services/finance subsector tilt that is negatively correlated with Factor 1, consistent with sector rotation effects. Factor 3 represents another finance subgroup factor, positively correlated with Factor 1, highlighting systematic risk within different parts of the financial sector. Stocks such as H90000, H88215, and H75157 exhibit very low uniqueness, meaning their returns are almost entirely explained by these common factors, whereas industries like Manufacturing (D) and Retail (G) are far more idiosyncratic, contributing diversification potential. Overall, the results show that finance dominates systematic risk in the sample, while other industries are driven more by firm-specific variation.
+Uniqueness values close to 0 indicate stocks well explained by the common factors (systematic risk). Higher uniqueness (>0.7) means the stock is more idiosyncratic.
 
-
-
-
+## Uniqueness (idiosyncratic) vs strongest factor loading (systematic)
 ```{r}
-#scree plot
-fa_promax <- factanal(X, factors = k, rotation = "promax",
-               scores = "Bartlett", lower = 0.05)
+fa_stock_ranked <- fa_stock %>%
+  arrange(uniqueness)
 
-fa_promax_df <- tidy(fa_promax)
-
-ggplot(fa_promax_df,aes(x=fl1,y=fl2, label=variable))+
-geom_segment(aes(xend=fl1, yend=fl2,x=0,y=0),
-arrow = arrow())+ geom_text(color='red',nudge_y = -0.05)
+knitr::kable(
+  fa_stock_ranked %>% select(industry, stock, dplyr::starts_with("Factor"), uniqueness) %>% slice_head(n = 10),
+  caption = "Top 10 most systematic stocks (lowest uniqueness)"
+)
 
 
+fa_stock_plot <- fa_stock %>%
+  rowwise() %>%
+  mutate(max_loading = max(abs(c_across(dplyr::starts_with("Factor"))))) %>%
+  ungroup()
 
-
-```
-
-```{r}
-fa_promax <- factanal(X, factors = k, rotation = "promax",
-                      scores = "Bartlett", lower = 0.05)
-
-fa_promax_df <- tidy(fa_promax)  # assumes columns: variable, fl1, fl2
-
-ggplot(fa_promax_df, aes(x = fl1, y = fl2, label = variable)) +
-  geom_segment(aes(x = 0, y = 0, xend = fl1, yend = fl2),
-               arrow = arrow(length = unit(2, "mm")), linewidth = 0.2) +
-  geom_point(size = 0) +
-  geom_text_repel(
-    max.overlaps = Inf,       # repel instead of dropping labels
-    box.padding = 0.25,       # space around labels
-    point.padding = 0.1,
-    min.segment.length = 0,   # always draw leader lines if needed
-    seed = 123,               # reproducible placement
-    color = "red",            # keep your red labels
-    size = 3
+ggplot(fa_stock_plot, aes(x = uniqueness, y = max_loading, color = industry, label = stock)) +
+  geom_point() +
+  geom_text_repel(size = 2, max.overlaps = 100) +
+  labs(
+    title = "Uniqueness (idiosyncratic) vs strongest factor loading (systematic)",
+    x = "Uniqueness (lower = more systematic)",
+    y = "Max |Factor Loading|"
   ) +
-  coord_equal() +
-  expand_limits(x = c(-1.1, 1.1), y = c(-1.1, 1.1)) +
   theme_minimal()
 
 ```
+The scatter plot of uniqueness versus maximum factor loading clearly shows that stocks from the Finance industry (H) cluster in the systematic corner—with low uniqueness (below 0.4) and high factor loadings (above 0.6). This is reinforced by the table of the top 10 most systematic stocks, where every single entry belongs to industry H. For example, H90000 exhibits an exceptionally low uniqueness of 0.05, meaning that 95% of its variance is explained by common factors, while others like H88215, H89050, and H75157 also show strong exposure to Factors 1 or 3. This dual evidence highlights that Finance stocks are the most strongly tied to systematic risk in the market, moving closely with common latent factors, whereas other industries (e.g., D, G) tend to scatter toward higher uniqueness, reflecting greater idiosyncratic variation and weaker alignment with overall market drivers.
+
+### Factor Loading Plot
+```{r}
+fa_df <- tidy(fa)
+
+ggplot(fa_df, aes(x = fl1, y = fl2, label = variable)) +
+  geom_segment(aes(xend = fl1, yend = fl2, x = 0, y = 0),
+               arrow = arrow(length = unit(2, "mm")), linewidth = 0.2) +
+  geom_point(size = 0.8) +
+  geom_text_repel(color='red',size = 2, max.overlaps = 50) +
+  coord_equal() +
+  labs(title = "Factor Loadings Plot (F1 vs F2)",
+       x = "Factor 1 Loadings", y = "Factor 2 Loadings")
+
+```
+The loading plot, together with the uniqueness vs factor loading scatter and top-10 systematic table, consistently shows that Finance (H) stocks are the most systematically driven. They load heavily on Factor1 (the main market factor), have very low uniqueness, and stand apart in both PCA and factor analysis. Other industries (D, G) play a lesser role in explaining common market variation, making them more idiosyncratic and potentially useful for diversification.
 
 # Table of both Factor model loading, uniqueness and PCA loadings
 ```{r}
-library(tidyverse)
-
 # 1. Factor Analysis loadings + uniqueness
 fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
   rename(F1 = Factor1, F2 = Factor2, F3 = Factor3)
@@ -524,25 +517,15 @@ rank_tbl <- fa_tbl %>%
   arrange(uniqueness)
 
 # 4. Preview top 10
-rank_tbl %>%
-  select(stock, industry, uniqueness, F1, F2, F3, PC1, PC2, PC3) %>%
-  slice_head(n = 10)
+rank_tbl_pretty <- rank_tbl %>%
+  mutate(across(c(F1,F2,F3,PC1,PC2,PC3,uniqueness), ~round(.x,3))) %>%
+  select(industry, stock, uniqueness, F1, F2, F3, PC1, PC2, PC3)
 
+knitr::kable(rank_tbl_pretty %>% slice_head(n = 10),
+             caption = "Top 10 most systematic stocks (low uniqueness) with FA and PCA loadings")
 ```
 
-Industry-level insight:
-
-Industry H (Finance, Insurance & Real Estate) dominates Factor1 and Factor3, consistent with being the largest group (34% of stocks).
-
-Industry E (Transportation & Utilities) shows moderate loadings across Factor2.
-
-Industry B (Mining) stands out on PC3 (idiosyncratic variation).
-
-
-The PCA results indicate that three principal components capture ~36% of total variance, with PC1 aligning broadly with systematic risk but showing a slightly negative correlation with the market return. Factor analysis with three factors explains ~31% of variance, with Factor1 strongly driven by Finance/Real Estate stocks (industry H), and Factor3 also linked to Finance but in different directions. Several H stocks (e.g., H90000, H89190) exhibit very low uniqueness and high factor loadings, indicating that their returns are predominantly explained by systematic risk. In contrast, stocks from industries such as Manufacturing (D) and Mining (B) tend to have high uniqueness, reflecting mostly idiosyncratic risk. This suggests that industry H carries the greatest systematic risk, while industries B and F contain more idiosyncratic variation. For an investor seeking market-representative stocks, low-uniqueness Finance/Real Estate stocks (such as H90000, H89190, H89437) would be recommended, whereas idiosyncratic Manufacturing and Mining stocks should be avoided in a systematic-risk-focused portfolio.
-
-
-
+Combining factor loadings, uniqueness, and PCA loadings shows that the most systematic stocks in the sample are concentrated in Finance (industry H). Names such as H90000 (u=0.05) and H88215 (u=0.097) have extremely low uniqueness and substantial factor exposure (e.g., F2≈0.70 and F1≈0.57), indicating their returns are largely explained by common factors. Several others (H75157, H89050, H77466, H89437, H89011) load very strongly on Factor 3 (≈0.87–0.93), while H89190 loads almost perfectly on Factor 1 (0.99). Their PCA PC1 loadings are also large in magnitude, confirming alignment with the market component. Overall, Finance stocks dominate systematic risk, whereas higher-uniqueness names in other industries (not shown here) are more idiosyncratic and offer diversification.
 
 ## Ranking criteria
 
@@ -581,20 +564,46 @@ ggplot(df, aes(x = uniqueness, y = max_loading, color = top_pick, label = stock)
 
 ```
 
-
-Based on lowest uniqueness and high factor loadings:
-
-H90000 (Finance, uniqueness 0.05, F2 = 0.697)
-
-H88215 (Finance, uniqueness 0.097, F1 = 0.569)
-
-H75157 (Finance, uniqueness 0.219, F3 = 0.933)
-
-H89050 (Finance, uniqueness 0.233, F3 = 0.923)
-
-H77466 (Finance, uniqueness 0.251, F3 = 0.897)
-
 From the factor analysis results, the five stocks most representative of systematic risk are H90000, H88215, H75157, H89050, and H77466, all from the Finance, Insurance & Real Estate sector. These stocks have low uniqueness values (0.05–0.25), indicating that their returns are largely explained by common factors. They also exhibit very high factor loadings (>0.55), confirming their alignment with market-wide systematic variation. These would be the most suitable candidates for an investor aiming to track market movements.
+
+## Highlight Top 5 in PCA Biplot
+
+```{r}
+# top 5 from your ranked table
+top5 <- c("H90000", "H88215", "H75157", "H89050", "H77466")
+
+loadings <- as.data.frame(pca$rotation[,1:2]) %>% 
+  rownames_to_column("stock") %>%
+  mutate(industry = substr(stock,1,1),
+         highlight = ifelse(stock %in% top5, "Top5", "Other"))
+
+ggplot(loadings, aes(PC1, PC2, color = highlight, label = stock)) +
+  geom_point(alpha = 0.6) +
+  geom_text_repel(data = subset(loadings, highlight=="Top5"), 
+                  size=3, color="red") +
+  scale_color_manual(values=c("Top5"="red", "Other"="grey70")) +
+  theme_minimal() +
+  labs(title="PCA Biplot with Top 5 Systematic Stocks Highlighted")
+
+```
+## Highlight Top 5 in Factor Analysis (F1 vs F2 plot)
+```{r}
+
+fa_df <- tidy(fa) %>% 
+  select(stock=variable, fl1, fl2, fl3) %>%
+  mutate(industry = substr(stock,1,1),
+         highlight = ifelse(stock %in% top5, "Top5", "Other"))
+
+ggplot(fa_df, aes(x=fl1, y=fl2, color=highlight, label=stock)) +
+  geom_point(alpha=0.6) +
+  geom_text_repel(data = subset(fa_df, highlight=="Top5"),
+                  size=3, color="blue") +
+  scale_color_manual(values=c("Top5"="blue", "Other"="grey70")) +
+  theme_minimal() +
+  labs(title="Factor Analysis Loadings (F1 vs F2) with Top 5 Highlighted",
+       x="Factor 1 Loading", y="Factor 2 Loading")
+
+```
 
 # References
 
