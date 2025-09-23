@@ -9,6 +9,7 @@ echo: FALSE
 library(tidyverse)
 library(visdat)
 library(pheatmap)
+library(broom)
 ```
 
 # Introduction
@@ -244,6 +245,8 @@ load <- as.data.frame(pca$rotation[,1:3]) %>%
 
 load$industry <- substr(load$stock, 1, 1)
 
+readr::write_csv(load, "Data/pca_loadings.csv")
+
 industry_centroids <- load %>%
   group_by(industry) %>%
   summarise(PC1 = mean(PC1), 
@@ -478,4 +481,49 @@ ggplot(fa_promax_df, aes(x = fl1, y = fl2, label = variable)) +
 
 
 ```
+
+# Table of both Factor model loading, uniqueness and PCA loadings
+```{r}
+library(tidyverse)
+
+# 1. Factor Analysis loadings + uniqueness
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
+  rename(F1 = Factor1, F2 = Factor2, F3 = Factor3)
+
+uniq_tbl <- tibble(stock = names(fa$uniquenesses),
+                   uniqueness = as.numeric(fa$uniquenesses))
+
+fa_tbl <- fa_tbl %>%
+  left_join(uniq_tbl, by = "stock")
+
+# 2. PCA loadings (rotation)
+pc_tbl <- as.data.frame(pca$rotation[,1:3]) %>%
+  rownames_to_column("stock") %>%
+  rename(PC1 = PC1, PC2 = PC2, PC3 = PC3)
+
+# 3. Combine both
+rank_tbl <- fa_tbl %>%
+  left_join(pc_tbl, by = "stock") %>%
+  mutate(industry = substr(stock, 1, 1)) %>%
+  arrange(uniqueness)
+
+# 4. Save to CSV for inspection
+write_csv(rank_tbl, "outputs/uniqueness_rank_with_loadings.csv")
+
+# 5. Preview top 10
+rank_tbl %>%
+  select(stock, industry, uniqueness, F1, F2, F3, PC1, PC2, PC3) %>%
+  slice_head(n = 10)
+
+```
+
+#conclusion
+H89190, lowerst uniqueness and loading in factor 1 is high
+H89050, u - 0.233, f3 0.923, PC1 0.142, PC2 -0.099 close to 0
+
+
+H90000, lowest uniqueness 0.05, PCA high PC1 low PC2
+
+H76273, factor 1 0.849, uniqueness 0.433
+H75157, factor 3 0.933, uniqueness 
 
