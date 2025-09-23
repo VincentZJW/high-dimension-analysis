@@ -450,6 +450,20 @@ Uniqueness values close to 0 indicate stocks well explained by the common factor
 
 ## Uniqueness (idiosyncratic) vs strongest factor loading (systematic)
 ```{r}
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock")
+
+uniq_tbl <- tibble(
+  stock = names(fa$uniquenesses),
+  uniqueness = as.numeric(fa$uniquenesses)
+)
+
+fa_stock <- fa_tbl %>%
+  left_join(uniq_tbl, by = "stock") %>%
+  mutate(industry = substr(stock, 1, 1)) %>%
+  # nice formatting for printing only; keeps numeric math safe
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  relocate(industry, stock)
+
 fa_stock_ranked <- fa_stock %>%
   arrange(uniqueness)
 
