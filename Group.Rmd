@@ -538,23 +538,49 @@ rank_tbl <- fa_tbl %>%
   mutate(industry = substr(stock, 1, 1)) %>%
   arrange(uniqueness)
 
-# 4. Save to CSV for inspection
-write_csv(rank_tbl, "outputs/uniqueness_rank_with_loadings.csv")
-
-# 5. Preview top 10
+# 4. Preview top 10
 rank_tbl %>%
   select(stock, industry, uniqueness, F1, F2, F3, PC1, PC2, PC3) %>%
   slice_head(n = 10)
 
 ```
 
-#conclusion
-H89190, lowerst uniqueness and loading in factor 1 is high
-H89050, u - 0.233, f3 0.923, PC1 0.142, PC2 -0.099 close to 0
+Industry-level insight:
+
+Industry H (Finance, Insurance & Real Estate) dominates Factor1 and Factor3, consistent with being the largest group (34% of stocks).
+
+Industry E (Transportation & Utilities) shows moderate loadings across Factor2.
+
+Industry B (Mining) stands out on PC3 (idiosyncratic variation).
 
 
-H90000, lowest uniqueness 0.05, PCA high PC1 low PC2
+The PCA results indicate that three principal components capture ~36% of total variance, with PC1 aligning broadly with systematic risk but showing a slightly negative correlation with the market return. Factor analysis with three factors explains ~31% of variance, with Factor1 strongly driven by Finance/Real Estate stocks (industry H), and Factor3 also linked to Finance but in different directions. Several H stocks (e.g., H90000, H89190) exhibit very low uniqueness and high factor loadings, indicating that their returns are predominantly explained by systematic risk. In contrast, stocks from industries such as Manufacturing (D) and Mining (B) tend to have high uniqueness, reflecting mostly idiosyncratic risk. This suggests that industry H carries the greatest systematic risk, while industries B and F contain more idiosyncratic variation. For an investor seeking market-representative stocks, low-uniqueness Finance/Real Estate stocks (such as H90000, H89190, H89437) would be recommended, whereas idiosyncratic Manufacturing and Mining stocks should be avoided in a systematic-risk-focused portfolio.
 
-H76273, factor 1 0.849, uniqueness 0.433
-H75157, factor 3 0.933, uniqueness 
+
+
+
+## Ranking criteria
+
+- Low uniqueness = systematic (market-driven).
+
+- Strong factor loading (absolute value, ≥0.8 is very strong).
+
+- PC1 alignment = optional filter to ensure market co-movement.
+
+
+## Recommended Top 5 Stocks
+
+Based on lowest uniqueness and high factor loadings:
+
+H90000 (Finance, uniqueness 0.05, F2 = 0.697)
+
+H88215 (Finance, uniqueness 0.097, F1 = 0.569)
+
+H75157 (Finance, uniqueness 0.219, F3 = 0.933)
+
+H89050 (Finance, uniqueness 0.233, F3 = 0.923)
+
+H77466 (Finance, uniqueness 0.251, F3 = 0.897)
+
+From the factor analysis results, the five stocks most representative of systematic risk are H90000, H88215, H75157, H89050, and H77466, all from the Finance, Insurance & Real Estate sector. These stocks have low uniqueness values (0.05–0.25), indicating that their returns are largely explained by common factors. They also exhibit very high factor loadings (>0.55), confirming their alignment with market-wide systematic variation. These would be the most suitable candidates for an investor aiming to track market movements.
 
