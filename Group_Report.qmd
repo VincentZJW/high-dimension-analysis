@@ -416,9 +416,43 @@ X <- as.matrix(stock_only)
 # Estimate 3-factor model with Promax rotation
 fa <- factanal(X, factors = 3, rotation = "promax", 
                scores = "Bartlett", lower = 0.05)
+# Factor model: already fitted as fa
+
+# 1. Extract factor loadings into tibble
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
+  rename(F1 = Factor1, F2 = Factor2, F3 = Factor3)
+
+# 2. Add industry code (first letter of stock name)
+fa_tbl <- fa_tbl %>%
+  mutate(industry = substr(stock, 1, 1))
+
+# 3. Add uniquenesses
+uniq_tbl <- tibble(stock = names(fa$uniquenesses),
+                   uniqueness = as.numeric(fa$uniquenesses))
+
+fa_tbl <- fa_tbl %>%
+  left_join(uniq_tbl, by = "stock")
+
+# 4. Summarise by industry
+fa_industry <- fa_tbl %>%
+  group_by(industry) %>%
+  summarise(
+    mean_F1 = mean(F1, na.rm = TRUE),
+    mean_F2 = mean(F2, na.rm = TRUE),
+    mean_F3 = mean(F3, na.rm = TRUE),
+    mean_uniqueness = mean(uniqueness, na.rm = TRUE),
+    n_stocks = n(),
+    .groups = "drop"
+  )
+
+# 5. Preview
+knitr::kable(fa_industry, digits = 3,
+             caption = "Average Factor Loadings and Uniqueness by Industry")
 
 #print(fa, digits = 3, cutoff = 0.3)
 ```
+Mining (B) shows the highest mean loading on Factor 1 (0.637), but with only 3 stocks this result is fragile. Finance (H), despite a lower mean_F1 (0.208), has by far the lowest uniqueness (0.510) and the largest sector size (28 stocks), making it the most systematically driven industry overall. Retail (G) loads strongest on Factor 2, while Factor 3 is more diffuse. In short, Finance is the industry most exposed to systematic risk, consistent with PCA–market results.
+
 
 @tbl-mat and @tbl-fa-cor show Factor 1 captures a broad market-finance risk, loading heavily on large H stocks and some capital-intensive firms. 
 
