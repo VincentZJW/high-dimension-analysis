@@ -1,0 +1,694 @@
+---
+title: "High-Dimensional Analysis of Stock Returns"
+author: "Group A: Christy Lai, Sun Ma, Jiwen Zhou, Rong Xu, Sarah Liu"
+format: pdf
+echo: FALSE
+message: FALSE
+warning: FALSE
+---
+
+```{r, inlude=FALSE}
+library(tidyverse)
+library(visdat)
+library(kableExtra)
+library(pheatmap)
+library(broom)
+library(ggrepel)
+```
+
+# Introduction
+
+This report examines monthly returns for up to 100 NYSE stocks (2005–2019) alongside the S&P 500 to distinguish common (systematic) movement from stock-specific variation. We map each ticker to its industry via the leading letter, then use Principal Component Analysis (PCA) and Factor Analysis (FA) to study co-movement and industry heterogeneity, and to identify stocks that most closely track the market. Before those models, we run an initial data audit and exploratory analysis to confirm the dataset is tidy, complete, and suitable for high-dimensional methods.
+
+```{r}
+# Load the data
+stock <- read_csv("Data/SampleA.csv")
+market <- read_csv("Data/Market.csv")
+```
+
+```{r}
+# Transform to Date format
+stock <- stock |>
+  mutate(
+    year = str_extract(Date, "\\d{4}"),
+    month = str_extract(Date, "(?<=M)\\d+"),
+    month = str_pad(month, width = 2, pad = "0"),
+    Date = paste0(year, "-", month),
+    Date = as.Date(paste0(Date, "-01"))
+  ) |>
+  select(-year, -month)
+
+market <- market |>
+  mutate(
+    year = str_extract(Date, "\\d{4}"),
+    month = str_extract(Date, "(?<=M)\\d+"),
+    month = str_pad(month, width = 2, pad = "0"),
+    Date = paste0(year, "-", month),
+    Date = as.Date(paste0(Date, "-01"))
+  ) |>
+  select(-year, -month)
+```
+
+
+# IDA and EDA
+
+## Data Quality and Formats
+
+Using `visdat`, we verified data types and visualised missingness. The data comprise monthly returns for numerous stocks across several industries. Missing observations are confined to Industry C; the remaining industries have no missing values. We further confirmed the absence of duplicate entries and of gaps in the monthly timeline. All variables are numeric apart from the date column. Stock codes encode industry with the first letter and the specific stock with the following numbers. The industry mapping is as follows:
+
+```{r}
+#| tbl-cap: "Industry codes"
+
+industry_codes <- tibble(
+  Code = c("B", "C", "D", "E", "F", "G", "H", "I"),
+  Industry = c(
+               "Mining",
+               "Construction",
+               "Manufacturing",
+               "Transportation and Public Utilities",
+               "Wholesale Trade",
+               "Retail Trade",
+               "Finance, Insurance and Real Estate",
+               "Services"
+               )
+)
+```
+
+```{r}
+#| label: tbl-ind_sum
+#| tbl-cap: "Industry summary statistics"
+
+# Extract industry from stock names
+
+long <- stock |> 
+  pivot_longer(-Date, names_to = "stock", values_to = "ret")
+
+stock_ind <- long |>
+  mutate(ind = str_extract(stock, "^[A-Za-z]+"))
+
+industry_prop <- stock_ind |>  
+  distinct(stock, ind) |>       
+  count(ind, name = "n_stocks") |>
+  mutate(
+    prop = n_stocks / sum(n_stocks)
+  ) |>
+  arrange(desc(prop))
+
+ind_summary <- industry_codes |>
+  left_join(industry_prop, by = c("Code" = "ind")) |>
+  select(Code, Industry, n_stocks, prop) 
+
+kable(ind_summary)
+```
+
+
+
+```{r}
+#| eval: false
+#Check duplicate value
+stock |> filter(duplicated(.))
+```
+
+```{r}
+#| eval: false
+# Check for missing months
+seq_months <- tibble(Date = seq(min(stock$Date, na.rm = TRUE),
+                                max(stock$Date, na.rm = TRUE),
+                                by = "month"))
+missing_months <- seq_months |> 
+  anti_join(stock |> distinct(Date), by = "Date")
+```
+
+
+## Check for Outliers Using Z-Scores 
+
+We used the 3-sigma rule to flag outliers: monthly returns with z-scores beyond ±3 relative to each stock’s history. After computing per-stock z-scores and merging them back to the dataset, we examined extreme return events. The five largest (by |z|) are shown in @tbl-outlier_table.
+
+For instance, D79122 posted a 4.15 return in September 2018 (z = 10.13). Several other extremes—particularly in Finance (H89011, H89548, H89050) and Services (I90394)—cluster around 2008–2009, aligning with the Global Financial Crisis.
+
+```{r}
+# Compute z-scores for each stock
+stock_z <- stock |>
+  mutate(across(-Date, ~ scale(.)[, 1], .names = "{.col}_z"))
+
+stock_z_long <- stock_z |>
+  pivot_longer(
+    cols = ends_with("_z"),
+    names_to = "Stock_z",
+    values_to = "Z_Score"
+  ) |>
+  mutate(
+    Stock = str_remove(Stock_z, "_z") 
+  )
+
+# Filter rows where abs(z-score) > 3 (3-sigma outliers)
+outlier_df <- stock_z_long |>
+  filter(abs(Z_Score) > 3) |>
+  select(Date, Stock, Z_Score) |>
+  arrange(desc(abs(Z_Score)))
+
+# join with raw returns
+outlier_df <- outlier_df |>
+  left_join(stock |> 
+              pivot_longer(-Date, names_to = "Stock", values_to = "Return"),
+            by = c("Date", "Stock"))
+```
+
+
+```{r}
+#| label: tbl-outlier_table
+#| tbl-cap: "Top 6 outliers detected using Z-scores"
+# View as tibble
+top_outlier <- head(outlier_df,6)
+
+kable(top_outlier)
+```
+
+
+```{r}
+# Per-stock summary stats
+summ <- long |>
+  group_by(stock) |>
+  summarise(
+    mean = mean(ret, na.rm = TRUE),
+    sd = sd(ret, na.rm = TRUE),
+    min = min(ret, na.rm = TRUE),
+    p25 = quantile(ret, 0.25, na.rm = TRUE),
+    median = median(ret, na.rm = TRUE),
+    p75 = quantile(ret, 0.75, na.rm = TRUE),
+    max = max(ret, na.rm = TRUE),
+    .groups = "drop"
+  ) |> arrange(desc(sd))
+```
+
+
+```{r}
+#| label: tbl-statistics-table
+#| tbl-cap: "Summary statistics for stock returns"
+sum_table <- summ |> slice_head(n = 9)
+kable(sum_table)
+```
+
+@tbl-statistics-table summarizes the top 10 most volatile stocks by standard deviation. D79122 shows the highest volatility and return, aligning with its outlier status. While most stocks have near-zero mean returns, E88332 shows high variability with a negative mean. These results reveal substantial differences in volatility, supporting the use of PCA and factor models to identify common patterns and systematic risk drivers.
+
+
+### Boxplot of top volatile stocks
+```{r}
+top9 <- summ |> slice_max(sd, n = pmin(9, nrow(summ))) |> pull(stock)
+```
+
+
+```{r}
+#| label: fig-boxplot
+#| fig-cap: "Return distributions of top 9 volatile stocks"
+stock |>
+  select(Date, all_of(top9)) |>
+  pivot_longer(-Date, names_to = "stock", values_to = "ret") |>
+  ggplot(aes(stock, ret)) +
+  geom_boxplot(outlier.alpha = 0.5) +
+  coord_flip() +
+  labs(title = "Return distributions — top9 volatile stock", 
+       x = NULL, 
+       y = "Monthly return") +
+  theme_minimal()
+```
+
+@fig-boxplot presents return distributions for the top 9 most volatile stocks. While most returns are centered around zero, several stocks exhibit long right tails and extreme outliers—especially D79122, which exceeds a return of 4. These patterns confirm earlier findings and highlight the importance of using PCA and factor models to account for shared variation driven by high-volatility stocks.
+
+# Principal Component Analysis (PCA)
+
+```{r}
+#| label: fig-scree
+#| fig-cap: "Scree plot of PCA"
+
+# Prepare data for PCA
+stock_pca <- stock |> 
+  select(-Date) |> 
+  as.matrix()
+
+stock_pca_std <- scale(stock_pca)
+
+# PCA
+pca <- prcomp(stock_pca_std, 
+              center = FALSE, 
+              scale. = FALSE)
+
+screeplot(pca, type = "lines")
+```
+
+
+
+```{r pca_summary}
+#| label: tbl-pca-summary
+#| tbl-cap: "Variance explained by PC1–PC3"
+var_explained <- pca$sdev^2
+prop_var <- var_explained / sum(var_explained)
+cum_var <- cumsum(prop_var)
+
+# Combine into a table
+pc_summary <- data.frame(
+  PC = paste0("PC", 1:length(var_explained)),
+  Variance = round(var_explained, 4),
+  Proportion = round(prop_var, 4),
+  Cumulative = round(cum_var, 4)
+)
+
+kable(pc_summary[1:3, ])
+```
+
+After standardization, the PCA scree plot (@fig-scree) shows a clear elbow at three components. Table @tbl-pca-summary indicates PC1–PC3 explain ~35–36% of total variance.
+
+```{r}
+#| label: tbl-cor
+#| tbl-cap: "Correlation between industry mean returns and market return"
+# Industry movement
+ind_move <- stock_ind |> 
+  group_by(Date, ind) |>
+  summarise(mean_ret = mean(ret))
+
+ind_wide <- ind_move |> 
+  left_join(market) |> 
+  select(Date, ind, mean_ret, MarketReturn) |>
+  pivot_wider(names_from = ind, values_from = mean_ret)
+
+ind_wide_num <- ind_wide |>
+  mutate(across(where(is.character), as.numeric)) |> 
+  as.data.frame() |>
+  select(-Date)
+
+# Compute correlation
+cor_mat <- cor(ind_wide_num, use = "pairwise.complete.obs")
+
+# Turn into table
+cor_tbl <- as.data.frame(round(cor_mat, 3))
+
+knitr::kable(cor_tbl)
+```
+
+
+```{r pca_loading}
+#| label: tbl-loadings
+#| tbl-cap: "Industry Loadings on PC1, PC2, and PC3"
+
+load <- as.data.frame(pca$rotation[,1:3]) |>
+  rownames_to_column("stock")
+
+load$industry <- substr(load$stock, 1, 1)
+
+industry_centroids <- load |>
+  group_by(industry) |>
+  summarise(PC1 = mean(PC1), 
+            PC2 = mean(PC2),
+            PC3 = mean(PC3))
+
+kable(industry_centroids)
+```
+
+```{r}
+#| label: fig-pca_cor
+#| fig-cap: "Relationships of PC1–PC3 with market return"
+
+scores <- as.data.frame(pca$x[, 1:3]) |>
+  cbind(Date = stock$Date, Market = market$MarketReturn)
+
+# Standardize
+scores_std <- scores |>
+  mutate(across(-Date, ~ as.numeric(scale(.))))
+
+scores_long <- scores_std |>
+  pivot_longer(cols = c(PC1, PC2, PC3),
+               names_to = "PC",
+               values_to = "Score")
+
+pca_cor_labels <- scores_long |>
+  group_by(PC) |>
+  summarize(
+    cor = cor(Market, Score, use = "complete.obs"),
+    .groups = "drop"
+  ) |>
+  mutate(
+    label = paste0("cor = ", sprintf("%.2f", cor)),
+    x = Inf,
+    y = Inf
+  )
+
+ggplot(scores_long, aes(x = Market, y = Score)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm") +
+  geom_text(data = pca_cor_labels, aes(x = x, y = y, label = label),
+            hjust = 1.1, vjust = 1.5, inherit.aes = FALSE) +
+  facet_wrap(~PC, ncol = 1, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Relationship between PC1–PC3 and market return",
+       x = "Market Return", y = "PC Score")
+```
+
+Together, PC1–PC3 explain just over one-third of total variance (@tbl-pca-summary). Among them, PC1 alone accounts for the largest share and, as shown in the correlation analysis with the market return (@fig-pca_cor), moves almost perfectly opposite to the market index. Because the sign of principal components is arbitrary, this negative correlation implies that PC1 coincides with the market factor once its orientation is aligned. PC2 and PC3 have only weak or near-zero correlations with the market, suggesting that they represent more sector-specific or idiosyncratic patterns.
+
+Industry-level summaries reinforce this conclusion. Table @tbl-cor shows that mean returns for industries E (Transportation/Utilities), H (Finance/Insurance/Real Estate), and I (Services) are most correlated with the market. Likewise, the industry centroids on PC1 (@tbl-loadings) reveal relatively large loadings for these same groups. By contrast, industries B (Mining) and F (Wholesale) feature more heavily on PC2 and PC3, indicating that their variation is driven by unique sectoral forces rather than broad market co-movement.
+
+
+
+# Factor Modelling
+
+
+## Determine number of factors
+```{r}
+#| label: fig-scree-eigen
+#| fig-cap: "Scree plot of eigenvalues for factor analysis"
+
+### Scree plot of eigenvalues
+stock_only <- stock |> select(-Date)
+X <- as.matrix(stock_only)
+eig_vals <- eigen(cor(X))$values
+eig_df <- data.frame(
+  PC = 1:length(eig_vals),
+  Eigenvalue = eig_vals
+)
+
+ggplot(eig_df, aes(x = PC, y = Eigenvalue)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  labs(
+    title = "Scree Plot of Eigenvalues",
+    x = "Principal Component",
+    y = "Eigenvalue"
+  )
+
+```
+
+@fig-scree-eigen showed a steep decline in eigenvalues, with the elbow around 3 factors. Therefore, we chose to fit a 3-factor model to capture the main sources of common variation while keeping the model parsimonious.
+
+
+## Fit the Factor Model
+```{r}
+# Prepare matrix
+stock_only <- stock |> select(-Date)
+X <- as.matrix(stock_only)
+
+# Estimate 3-factor model with Promax rotation
+fa <- factanal(X, factors = 3, rotation = "promax", 
+               scores = "Bartlett", lower = 0.05)
+# Factor model: already fitted as fa
+
+# 1. Extract factor loadings into tibble
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock") %>%
+  rename(F1 = Factor1, F2 = Factor2, F3 = Factor3)
+
+# 2. Add industry code (first letter of stock name)
+fa_tbl <- fa_tbl %>%
+  mutate(industry = substr(stock, 1, 1))
+
+# 3. Add uniquenesses
+uniq_tbl <- tibble(stock = names(fa$uniquenesses),
+                   uniqueness = as.numeric(fa$uniquenesses))
+
+fa_tbl <- fa_tbl %>%
+  left_join(uniq_tbl, by = "stock")
+
+# 4. Summarise by industry
+fa_industry <- fa_tbl %>%
+  group_by(industry) %>%
+  summarise(
+    mean_F1 = mean(F1, na.rm = TRUE),
+    mean_F2 = mean(F2, na.rm = TRUE),
+    mean_F3 = mean(F3, na.rm = TRUE),
+    mean_uniqueness = mean(uniqueness, na.rm = TRUE),
+    n_stocks = n(),
+    .groups = "drop"
+  )
+
+# 5. Preview
+knitr::kable(fa_industry, digits = 3,
+             caption = "Average Factor Loadings and Uniqueness by Industry")
+
+#print(fa, digits = 3, cutoff = 0.3)
+```
+Mining (B) shows the highest mean loading on Factor 1 (0.637), but with only 3 stocks this result is fragile. Finance (H), despite a lower mean_F1 (0.208), has by far the lowest uniqueness (0.510) and the largest sector size (28 stocks), making it the most systematically driven industry overall. Retail (G) loads strongest on Factor 2, while Factor 3 is more diffuse. In short, Finance is the industry most exposed to systematic risk, consistent with PCA–market results.
+
+
+@tbl-mat and @tbl-fa-cor show Factor 1 captures a broad market-finance risk, loading heavily on large H stocks and some capital-intensive firms. 
+
+While Factor 2 reflects a services/finance subsector tilt that is negatively correlated with Factor 1, consistent with sector rotation effects. 
+
+Factor 3 represents another finance subgroup factor, positively correlated with Factor 1, highlighting systematic risk within different parts of the financial sector. 
+
+```{r}
+#| label: tbl-mat
+#| tbl-cap: "Numbers of Each Industry on Factors 1–3"
+# Tidy loadings + add industry code from ticker's first letter
+load_df <- as_tibble(unclass(fa$loadings), rownames = "stock") |>
+  rename(Factor1 = 2, Factor2 = 3, Factor3 = 4) |>  
+  mutate(ind = substr(stock, 1, 1))
+
+# Industry proportions in the sample (unique stocks per industry)
+ind_prop <- load_df |>
+  distinct(stock, ind) |>
+  count(ind, name = "n_stocks") |>
+  mutate(prop = n_stocks / sum(n_stocks))
+
+fac_ind_mat <- load_df |>
+  pivot_longer(starts_with("Factor"), names_to = "Factor", values_to = "Loading") |>
+  filter(abs(Loading) >= 0.4) |>
+  count(ind, Factor, name = "n_strong") |>
+  pivot_wider(names_from = Factor, values_from = n_strong, values_fill = 0) |>
+  left_join(ind_prop, by = "ind") |>
+  arrange(desc(prop))
+
+kable(fac_ind_mat)
+```
+
+```{r}
+#| label: tbl-fa-cor
+#| tbl-cap: "Factor Correlation Matrix"
+# Construct the symmetric correlation matrix
+Phi_mat <- matrix(c(
+  1.00, -0.44,  0.65,
+ -0.44,  1.00, -0.24,
+  0.65, -0.24,  1.00
+), nrow = 3, byrow = TRUE)
+
+dimnames(Phi_mat) <- list(
+  c("Factor1","Factor2","Factor3"),
+  c("Factor1","Factor2","Factor3")
+)
+
+# Transform to tibble
+Phi_df <- as_tibble(Phi_mat, rownames = "Factor")
+
+kable(Phi_df)
+
+```
+
+Uniqueness values close to 0 indicate stocks well explained by the common factors (systematic risk). Higher uniqueness (>0.7) means the stock is more idiosyncratic.
+
+From @tbl-fa-stock, stocks such as H90000, H88215, and H75157 exhibit very low uniqueness, meaning their returns are almost entirely explained by these common factors.
+
+```{r}
+#| label: tbl-fa-stock
+#| tbl-cap: "Top 10 Most Systematic Stocks (Lowest Uniqueness)"
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock")
+
+uniq_tbl <- tibble(
+  stock = names(fa$uniquenesses),
+  uniqueness = as.numeric(fa$uniquenesses)
+)
+
+fa_stock <- fa_tbl |>
+  left_join(uniq_tbl, by = "stock") |>
+  mutate(industry = substr(stock, 1, 1)) |>
+  # nice formatting for printing only; keeps numeric math safe
+  mutate(across(where(is.numeric), ~ round(.x, 3))) |>
+  relocate(industry, stock)
+
+fa_stock_ranked <- fa_stock |>
+  arrange(uniqueness)
+
+knitr::kable(
+  fa_stock_ranked |> select(industry, stock, dplyr::starts_with("Factor"), uniqueness) |> slice_head(n = 10)
+)
+```
+
+
+```{r}
+#| label: fig-fa-stock
+#| fig-cap: "Uniqueness vs strongest factor loading"
+fa_stock_plot <- fa_stock |>
+  rowwise() |>
+  mutate(max_loading = max(abs(c_across(dplyr::starts_with("Factor"))))) |>
+  ungroup()
+
+ggplot(fa_stock_plot, aes(x = uniqueness, y = max_loading, color = industry, label = stock)) +
+  geom_point() +
+  geom_text_repel(size = 2, max.overlaps = 100) +
+  labs(
+    title = "Uniqueness (idiosyncratic) vs strongest factor loading (systematic)",
+    x = "Uniqueness (lower = more systematic)",
+    y = "Max |Factor Loading|"
+  ) +
+  theme_minimal()
+
+```
+
+@fig-fa-stock shows that stocks from the Finance industry cluster in the systematic corner—with low uniqueness (below 0.4) and high factor loadings (above 0.6). 
+
+This is reinforced @tbl-fa-stock, where every single entry belongs to industry H. For example, H90000 exhibits an exceptionally low uniqueness of 0.05, meaning that 95% of its variance is explained by common factors, while others like H88215, H89050, and H75157 also show strong exposure to Factors 1 or 3. 
+
+This dual evidence highlights that Finance stocks are the most strongly tied to systematic risk in the market, moving closely with common latent factors, whereas other industries (e.g.D, G) tend to scatter toward higher uniqueness, reflecting greater idiosyncratic variation and weaker alignment with overall market drivers.
+
+## Factor Loading Plot
+```{r}
+#| label: fig-fa-loadings
+#| fig-cap: "Factor Loadings Plot"
+fa_df <- tidy(fa)
+
+ggplot(fa_df, aes(x = fl1, y = fl2, label = variable)) +
+  geom_segment(aes(xend = fl1, yend = fl2, x = 0, y = 0),
+               arrow = arrow(length = unit(2, "mm")), linewidth = 0.2) +
+  geom_point(size = 0.8) +
+  geom_text_repel(color='red',size = 2, max.overlaps = 50) +
+  coord_equal() +
+  labs(title = "Factor Loadings Plot (F1 vs F2)",
+       x = "Factor 1 Loadings", y = "Factor 2 Loadings")
+
+```
+
+@fig-fa-loadings, together with @fig-fa-stock and @tbl-fa-stock, consistently shows that Finance stocks are the most systematically driven. They load heavily on Factor1 (the main market factor), have very low uniqueness, and stand apart in both PCA and factor analysis. 
+
+Other industries (D, G) play a lesser role in explaining common market variation, making them more idiosyncratic and potentially useful for diversification.
+
+
+
+
+# Putting PCA and FA together
+```{r}
+#| label: tbl-rank
+#| tbl-cap: "Top 5 Most Systematic Stocks with FA and PCA Loadings"
+# Factor Analysis loadings + uniqueness
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock") |>
+  rename(F1 = Factor1, F2 = Factor2, F3 = Factor3)
+
+uniq_tbl <- tibble(stock = names(fa$uniquenesses),
+                   uniqueness = as.numeric(fa$uniquenesses))
+
+fa_tbl <- fa_tbl |>
+  left_join(uniq_tbl, by = "stock")
+
+# PCA loadings (rotation)
+pc_tbl <- as.data.frame(pca$rotation[,1:3]) |>
+  rownames_to_column("stock") |>
+  rename(PC1 = PC1, PC2 = PC2, PC3 = PC3)
+
+# Combine both
+rank_tbl <- fa_tbl |>
+  left_join(pc_tbl, by = "stock") |>
+  mutate(industry = substr(stock, 1, 1)) |>
+  arrange(uniqueness)
+
+# Preview top 5
+rank_tbl_pretty <- rank_tbl |>
+  mutate(across(c(F1,F2,F3,PC1,PC2,PC3,uniqueness), ~round(.x,3))) |>
+  select(industry, stock, uniqueness, F1, F2, F3, PC1, PC2, PC3)
+
+knitr::kable(rank_tbl_pretty |> slice_head(n = 5))
+```
+
+
+
+```{r}
+#| label: tbl-top5-loadings
+#| tbl-cap: "Top 5 Stocks by Absolute PC1 Loading"
+# Extract PCA loadings for PC1
+pc_load_tbl <- as.data.frame(pca$rotation[,1:3]) |>
+  rownames_to_column("stock") |>
+  mutate(
+    industry = substr(stock, 1, 1),
+    abs_PC1 = abs(PC1)   # absolute loadings for ranking
+  ) |>
+  arrange(desc(abs_PC1))
+
+# Top 5
+top5_pc1 <- pc_load_tbl |>
+  slice_head(n = 5)
+
+kable(top5_pc1)
+```
+
+Combining factor loadings, uniqueness, and PCA loadings shows that the most systematic stocks in the sample are concentrated in Finance. 
+
+Stocks such as H90000 (u=0.05) and H88215 (u=0.097) have extremely low uniqueness and substantial factor exposure (e.g.F2≈0.70 and F1≈0.57), indicating their returns are largely explained by common factors. 
+
+Several others (H75157, H89050, H77466, H89437, H89011) load very strongly on Factor 3 (≈0.87–0.93), while H89190 loads almost perfectly on Factor 1 (0.99). Their PC1 loadings are also large in magnitude, confirming alignment with the market component. 
+
+Figure @fig-fa-top5 highlights these picks in the low-uniqueness, high-loading corner of the factor space.
+
+Overall, Finance stocks dominate systematic risk, whereas higher-uniqueness names in other industries are more idiosyncratic and offer diversification.
+
+
+### Ranking criteria
+要加一句話說明
+
+- Low uniqueness = systematic (market-driven).
+
+- Strong factor loading (absolute value, ≥0.8 is very strong).
+
+- PC1 alignment = optional filter to ensure market co-movement.
+
+## Recommended Top 5 Stocks
+```{r}
+#| label: fig-fa-top5
+#| fig-cap: "Uniqueness vs strongest factor loading, highlighting top 5 picks"
+# Get absolute strongest factor loading for each stock
+df <- rank_tbl %>%
+  rowwise() %>%
+  mutate(max_loading = max(abs(c(F1, F2, F3)))) %>%
+  ungroup()
+
+# Mark top 5 recommended stocks
+top5 <- c("H90000", "H88215", "H75157", "H89050", "H77466")
+df <- df %>%
+  mutate(top_pick = ifelse(stock %in% top5, "Yes", "No"))
+
+# Plot
+ggplot(df, aes(x = uniqueness, y = max_loading, color = top_pick, label = stock)) +
+  geom_point(size = 3) +
+  geom_text_repel(aes(label = ifelse(top_pick == "Yes", stock, "")),
+                  size = 3, box.padding = 0.25, max.overlaps = Inf) +
+  scale_color_manual(values = c("Yes" = "red", "No" = "grey")) +
+  theme_minimal() +
+  labs(title = "Uniqueness vs Strongest Factor Loading",
+       subtitle = "Top 5 market-like stocks highlighted in red",
+       x = "Uniqueness (idiosyncratic risk)",
+       y = "Strongest Factor Loading (systematic risk)",
+       color = "Top 5 Pick")
+
+```
+
+From the factor analysis results, the five stocks most representative of systematic risk are H90000, H88215, H75157, H89050, and H77466, all from the Finance, Insurance & Real Estate sector. 
+
+These stocks have low uniqueness values (0.05–0.25), indicating that their returns are largely explained by common factors. They also exhibit very high factor loadings (>0.55), confirming their alignment with market-wide systematic variation.
+
+These would be the most suitable candidates for an investor aiming to track market movements.
+
+# Assumptions and limitations
+- Sign indeterminacy. PC/factor signs are arbitrary. We align PC1 to the market before interpreting “with/against the market.”
+
+- Stationarity. Stock return distributions and their covariance structure are assumed to be approximately stationary across the 2005–2019 sample period.
+
+- Linearity of relationships. PCA/FA assume linear correlation structures among returns. Nonlinear dependencies (volatility clustering, tail co-movements) are not captured.
+
+- Selection practicality. The five-stock portfolio is concentrated (all H in the strict “most systematic” sense). If mandate requires sector diversification, expect a trade-off between tracking the market and spreading sector risk.
+
+- Sampling window. 2005–2019 spans the GFC and a long expansion; factor structure can shift in other regimes.
+
+- Industry coding granularity. One-letter codes pool heterogeneous businesses. Within-industry dispersion—especially in H—suggests sub-sectors (e.g., banks vs. REITs) that a finer classification would separate.
+
+- Time aggregation. Returns are monthly. Higher-frequency (daily/weekly) factors might differ, and factor exposures may be time-varying.
+
+# Conclusion
+
+While PCA identifies PC1 as the dominant market-wide factor, factor models allow us to quantify how strongly each stock and industry loads on latent factors, and to evaluate the degree of uniqueness (idiosyncratic variation) that is not explained by systematic influences.
+
+
