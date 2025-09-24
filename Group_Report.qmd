@@ -454,6 +454,10 @@ knitr::kable(fa_industry, digits = 3,
 Mining (B) shows the highest mean loading on Factor 1 (0.637), but with only 3 stocks this result is fragile. Finance (H), despite a lower mean_F1 (0.208), has by far the lowest uniqueness (0.510) and the largest sector size (28 stocks), making it the most systematically driven industry overall. Retail (G) loads strongest on Factor 2, while Factor 3 is more diffuse. In short, Finance is the industry most exposed to systematic risk, consistent with PCA–market results.
 
 
+From the factor analysis results, most industries tend to load positively on the common factors, meaning they move in the same direction as broad market‐driven variation. Mining (B), Finance (H), Services (I), and Transport/Utilities (E) all show positive average loadings on Factor 1, aligning with systematic movements. Retail (G) loads strongly and positively on Factor 2, while Finance (H) and Services (I) also show moderate positive Factor 2 loadings. Factor 3 does not display a dominant industry, but Finance (H) again has modest positive exposure.
+
+No industry shows consistently negative mean loadings, though some subgroups within industries (e.g., a few D and F stocks) display opposite signs, indicating idiosyncratic moves. This highlights heterogeneity within industries: while Finance (H) stocks generally co‐move strongly with the common factors (low uniqueness, positive loadings), industries like D (Manufacturing) and G (Retail) are more mixed, with higher uniqueness and more diverse directions of movement.
+
 @tbl-mat and @tbl-fa-cor show Factor 1 captures a broad market-finance risk, loading heavily on large H stocks and some capital-intensive firms. 
 
 While Factor 2 reflects a services/finance subsector tilt that is negatively correlated with Factor 1, consistent with sector rotation effects. 
