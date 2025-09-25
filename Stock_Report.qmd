@@ -1,6 +1,6 @@
 ---
 title: "High-Dimensional Analysis of Stock Returns"
-author: "Group A: Christy Lai, Sun Ma, Jiwen Zhou, Rong Xu, Sarah Liu"
+author: "Group 1A: Christy Lai, Sun Ma, Jiwen Zhou, Rong Xu, Sarah Liu"
 format: pdf
 echo: FALSE
 message: FALSE
