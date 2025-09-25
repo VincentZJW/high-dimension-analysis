@@ -10,7 +10,6 @@ warning: FALSE
 library(tidyverse)
 library(visdat)
 library(kableExtra)
-library(pheatmap)
 library(broom)
 library(ggrepel)
 ```
@@ -30,7 +29,7 @@ stock <- stock |>
     month = str_pad(month, width = 2, pad = "0"),
     Date = paste0(year, "-", month),
     Date = as.Date(paste0(Date, "-01"))
-  ) |>  select(-year, -month)
+  ) |> select(-year, -month)
 market <- market |>
   mutate(
     year = str_extract(Date, "\\d{4}"),
@@ -84,14 +83,13 @@ missing_months <- seq_months |>
 
 ```{r}
 # Compute z-scores for each stock
-stock_z <- stock |>
-  mutate(across(-Date, ~ scale(.)[, 1], .names = "{.col}_z"))
+stock_z <- stock |>  mutate(across(-Date, ~ scale(.)[, 1], .names = "{.col}_z"))
 stock_z_long <- stock_z |>
   pivot_longer(
     cols = ends_with("_z"),
     names_to = "Stock_z",
     values_to = "Z_Score"
-  ) |>  mutate(Stock = str_remove(Stock_z, "_z") )
+  ) |> mutate(Stock = str_remove(Stock_z, "_z"))
 # Filter rows where abs(z-score) > 3 (3-sigma outliers)
 outlier_df <- stock_z_long |>
   filter(abs(Z_Score) > 3) |>
@@ -127,7 +125,6 @@ summ <- long |>
   ) |> arrange(desc(sd))
 ```
 
-
 ```{r}
 ##| label: tbl-statistics-table
 ##| tbl-cap: "Summary statistics for stock returns"
@@ -139,7 +136,6 @@ kable(sum_table)
 # Boxplot of top volatile stocks
 top9 <- summ |> slice_max(sd, n = pmin(9, nrow(summ))) |> pull(stock)
 ```
-
 
 ```{r}
 ##| label: fig-boxplot
@@ -246,23 +242,6 @@ ggplot(scores_long, aes(x = Market, y = Score)) +
   labs(title = "Relationship between PC1–PC3 and market return",
        x = "Market Return", y = "PC Score")
 ```
-
-
-```{r}
-##| label: tbl-top5-loadings
-##| tbl-cap: "Top 5 Stocks by Absolute PC1 Loading"
-# Extract PCA loadings for PC1
-pc_load_tbl <- as.data.frame(pca$rotation[,1:3]) |>
-  rownames_to_column("stock") |>
-  mutate(industry = substr(stock, 1, 1),
-    abs_PC1 = abs(PC1)   # absolute loadings for ranking
-  ) |> arrange(desc(abs_PC1))
-# Top 5
-top5_pc1 <- pc_load_tbl |>
-  slice_head(n = 5)
-kable(top5_pc1)
-```
-
 # Factor Modelling
 ```{r}
 ##| label: fig-scree-eigen
@@ -290,81 +269,55 @@ fa <- factanal(X, factors = 3, rotation = "promax",
                scores = "Bartlett", lower = 0.05)
 print(fa, digits = 3, cutoff = 0.3)
 ```
-
 ```{r}
-##| label: tbl-mat
-##| tbl-cap: "Numbers of Each Industry on Factors 1–3"
-# Tidy loadings + add industry code from ticker's first letter
-load_df <- as_tibble(unclass(fa$loadings), rownames = "stock") |>
-  rename(Factor1 = 2, Factor2 = 3, Factor3 = 4) |>  
-  mutate(ind = substr(stock, 1, 1))
-# Industry proportions in the sample (unique stocks per industry)
-ind_prop <- load_df |>
-  distinct(stock, ind) |>
-  count(ind, name = "n_stocks") |>
-  mutate(prop = n_stocks / sum(n_stocks))
-fac_ind_mat <- load_df |>
-  pivot_longer(starts_with("Factor"),names_to = "Factor",
-               values_to = "Loading")|> filter(abs(Loading) >= 0.4) |>
-  count(ind, Factor, name = "n_strong") |>
-  pivot_wider(names_from = Factor, values_from = n_strong, values_fill = 0) |>
-  left_join(ind_prop, by = "ind") |>
-  arrange(desc(prop))
-kable(fac_ind_mat)
-```
-
-```{r}
-##| label: tbl-fa-cor
-##| tbl-cap: "Factor Correlation Matrix"
-# Construct the symmetric correlation matrix
-Phi_mat <- matrix(c(
-  1.00, -0.44,  0.65,
- -0.44,  1.00, -0.24,
-  0.65, -0.24,  1.00
-), nrow = 3, byrow = TRUE)
-dimnames(Phi_mat) <- list(
-  c("Factor1","Factor2","Factor3"),
-  c("Factor1","Factor2","Factor3"))
-# Transform to tibble
-Phi_df <- as_tibble(Phi_mat, rownames = "Factor")
-kable(Phi_df)
+##| label: tbl-fa-industry
+##| tbl-cap: "Average Factor Loadings and Uniqueness by Industry"
+# Estimate 3-factor model with Promax rotation
+fa <- factanal(X, factors = 3, rotation = "promax", 
+               scores = "Bartlett", lower = 0.05)
+fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock") |>
+  rename(F1 = Factor1, F2 = Factor2, F3 = Factor3) |>
+  mutate(
+    industry = substr(stock, 1, 1),
+    uniqueness = as.numeric(fa$uniquenesses))
+# Summarise by industry
+fa_industry <- fa_tbl |>
+  group_by(industry) |>
+  summarise(
+    mean_F1 = mean(F1, na.rm = TRUE),
+    mean_F2 = mean(F2, na.rm = TRUE),
+    mean_F3 = mean(F3, na.rm = TRUE),
+    mean_uniqueness = mean(uniqueness, na.rm = TRUE),
+    n_stocks = n(),
+    .groups = "drop")
+kable(fa_industry, digits = 3)
 ```
 
 ```{r}
 ##| label: tbl-fa-stock
 ##| tbl-cap: "Top 10 Most Systematic Stocks (Lowest Uniqueness)"
-fa_tbl <- as_tibble(unclass(fa$loadings), rownames = "stock")
-uniq_tbl <- tibble(
-  stock = names(fa$uniquenesses),
-  uniqueness = as.numeric(fa$uniquenesses))
-fa_stock <- fa_tbl |>
-  left_join(uniq_tbl, by = "stock") |>
-  mutate(industry = substr(stock, 1, 1)) |>
-  # nice formatting for printing only; keeps numeric math safe
-  mutate(across(where(is.numeric), ~ round(.x, 3))) |>
-  relocate(industry, stock)
-fa_stock_ranked <- fa_stock |>
-  arrange(uniqueness)
-knitr::kable(
-  fa_stock_ranked |> select(industry, stock, dplyr::starts_with("Factor"),
-                            uniqueness) |> slice_head(n = 10))
+fa_top10_systematic <- fa_tbl |>
+  arrange(uniqueness) |>
+  slice_head(n = 10) |>
+  select(industry, stock, starts_with("F"), uniqueness)
+knitr::kable(fa_top10_systematic, digits = 3)
 ```
 
 
 ```{r}
 ##| label: fig-fa-stock
 ##| fig-cap: "Uniqueness vs strongest factor loading"
-fa_stock_plot <- fa_stock |>
+fa_stock_plot <- fa_tbl |>
   rowwise() |>
-  mutate(max_loading = max(abs(c_across(dplyr::starts_with("Factor"))))) |>
-  ungroup()
-ggplot(fa_stock_plot, aes(x = uniqueness,y = max_loading,color = industry,
-                          label = stock)) +
+  mutate(max_loading = max(abs(c_across(dplyr::starts_with("F"))))) |> ungroup()
+ggplot(fa_stock_plot, aes(x = uniqueness, y = max_loading, color = industry, label = stock)) +
   geom_point() +
   geom_text_repel(size = 2, max.overlaps = 100) +
-  labs(title ="Uniqueness (idiosyncratic) vs strongest factor loading (systematic)",
-    x = "Uniqueness (lower = more systematic)",y = "Max |Factor Loading|") +
-  theme_minimal()
+  labs(
+    title = "Uniqueness (idiosyncratic) vs strongest factor loading (systematic)",
+    x = "Uniqueness (lower = more systematic)",
+    y = "Max |Factor Loading|"
+  ) +  theme_minimal()
 ```
 
 ```{r}
@@ -417,8 +370,7 @@ df <- rank_tbl %>%
   ungroup()
 # Mark top 5 recommended stocks
 top5 <- c("H90000", "H88215", "H75157", "H89050", "H77466")
-df <- df %>%
-  mutate(top_pick = ifelse(stock %in% top5, "Yes", "No"))
+df <- df %>%  mutate(top_pick = ifelse(stock %in% top5, "Yes", "No"))
 # Plot
 ggplot(df,aes(x=uniqueness,y = max_loading,color=top_pick,label = stock)) +
   geom_point(size = 3) +
@@ -432,7 +384,7 @@ ggplot(df,aes(x=uniqueness,y = max_loading,color=top_pick,label = stock)) +
        y = "Strongest Factor Loading (systematic risk)",
        color = "Top 5 Pick")
 ```
-# Other
+# Other 
 ```{r}
 ## Check missing values and data types
 vis_miss(stock) +
@@ -448,10 +400,61 @@ vis_dat(stock) +
 # Time series
 ggplot(ind_move, aes(x = Date)) +
   geom_line(aes(y = mean_ret), color = "black") +
-  facet_wrap(~ind) +
-  theme_minimal() +
-  labs(title = "Industry mean returns over time",
-    x = "Date",y = "Return") +
+  facet_wrap(~ind) + theme_minimal() +
+  labs(title = "Industry mean returns over time",x = "Date",y = "Return") +
   theme(legend.position = "bottom")
 ```
 
+```{r}
+# ----- Build X (T x N) from 'stock' and standardise -----
+X <- stock %>%
+  dplyr::select(-Date) %>%
+  as.matrix()
+# mean-impute each column (transparent + simple)
+X <- apply(X, 2, function(x) { x[is.na(x)] <- mean(x, na.rm = TRUE); x })
+# standardise over time so Euclidean distance ~ correlation structure
+Y  <- scale(X)          # T x N
+Yc <- t(Y)              # N x T (rows = stocks)
+# preserve stock names for later plots
+if (is.null(colnames(X))) colnames(X) <- paste0("S", seq_len(ncol(X)))
+rownames(Yc) <- colnames(X)
+```
+
+```{r, fig.cap="Dendrogram of clustering results"}
+library(MASS)    # isoMDS
+library(mclust)  # Mclust, adjustedRandIndex
+library(factoextra)
+# distances between stocks
+d_stocks <- dist(Yc, method = "euclidean")
+# Ward.D2
+hc <- hclust(d_stocks, method = "ward.D2")
+k  <- 3
+cl_hier <- cutree(hc, k = k)
+# visual check
+ fviz_dend(hc, cex = 0, xlab = "",ylab = "", main = "",ggtheme = theme_bw(),
+          lwd = 1.5,k = 3, rect = TRUE, color_labels_by_k = FALSE) +
+  theme(text = element_text(size = 26),axis.text.x = element_blank(),
+        plot.margin = margin(50, 20, 60, 20)) + coord_cartesian(clip = "off")
+# Base on the Dendrogram,3 cluster solution is suggested, even it is not as 
+# stable as 2 cluster solution, the size of clusters would be more balanced.
+```
+
+```{r, tbl.cap="Hierarchical cluster composition percentage by industry"}
+hc_result <- cutree(hc, k = 3) %>% 
+  as.data.frame() %>%
+  rownames_to_column("stock") %>% 
+  mutate(industry = substr(stock, 1, 1)) %>% 
+  rename(cluster = ".")
+# Count per cluster and industry, calculate percentage
+cluster_industry_percent <- hc_result %>%
+  group_by(cluster, industry) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  group_by(cluster) %>%
+  mutate(percent = round(100 * count / sum(count), 2)) %>%
+  ungroup() %>%
+  dplyr::select(-count) %>%
+  pivot_wider(names_from = cluster, values_from = percent, names_prefix = "Cluster_")
+knitr::kable(cluster_industry_percent)
+# Cluster 1 is dominated by industry H, D, and I, cluster 2 is dominated by 
+# industry H, and E, and cluster 3 only contain cluster H.  
+```
