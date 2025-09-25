@@ -475,7 +475,7 @@ ggplot(fa_df, aes(x = fl1, y = fl2, label = variable)) +
 
 Other industries (D, G) play a lesser role in explaining common market variation, making them more idiosyncratic and potentially useful for diversification.
 
-# Putting PCA and FA together
+## Putting PCA and FA together
 ```{r}
 #| label: tbl-rank
 #| tbl-cap: "Top 5 Most Systematic Stocks with FA and PCA Loadings"
@@ -508,7 +508,7 @@ Several others (H75157, H89050, H77466, H89437, H89011) load very strongly on Fa
 Overall, Finance stocks dominate systematic risk, whereas higher-uniqueness names in other industries are more idiosyncratic and offer diversification.
 
 
-### Ranking criteria
+## Ranking criteria
 When selecting the best 5 stocks we can use the following criteria:
 
 - Low uniqueness = systematic (market-driven).
