@@ -455,6 +455,10 @@ This is reinforced @tbl-fa-stock, where every single entry belongs to industry H
 This dual evidence highlights that Finance stocks are the most strongly tied to systematic risk in the market, moving closely with common latent factors, whereas other industries (e.g.D, G) tend to scatter toward higher uniqueness, reflecting greater idiosyncratic variation and weaker alignment with overall market drivers.
 
 ## Factor Loading Plot
+@fig-fa-loadings, together with @fig-fa-stock and @tbl-fa-stock, consistently shows that Finance stocks are the most systematically driven. They load heavily on Factor1 (the main market factor), have very low uniqueness, and stand apart in both PCA and factor analysis. 
+
+Other industries (D, G) play a lesser role in explaining common market variation, making them more idiosyncratic and potentially useful for diversification.
+
 ```{r}
 #| label: fig-fa-loadings
 #| fig-cap: "Factor Loadings Plot"
@@ -470,10 +474,6 @@ ggplot(fa_df, aes(x = fl1, y = fl2, label = variable)) +
        x = "Factor 1 Loadings", y = "Factor 2 Loadings")
 
 ```
-
-@fig-fa-loadings, together with @fig-fa-stock and @tbl-fa-stock, consistently shows that Finance stocks are the most systematically driven. They load heavily on Factor1 (the main market factor), have very low uniqueness, and stand apart in both PCA and factor analysis. 
-
-Other industries (D, G) play a lesser role in explaining common market variation, making them more idiosyncratic and potentially useful for diversification.
 
 ## Putting PCA and FA together
 ```{r}
