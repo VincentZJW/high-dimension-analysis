@@ -554,7 +554,7 @@ These stocks have low uniqueness values (0.05–0.25), indicating that their ret
 
 These would be the most suitable candidates for an investor aiming to track market movements.
 
-# Assumptions and limitations
+# Assumptions and Limitations
 - Sign indeterminacy. PC/factor signs are arbitrary. We align PC1 to the market before interpreting “with/against the market.”
 
 - Stationarity. Stock return distributions and their covariance structure are assumed to be approximately stationary across the 2005–2019 sample period.
@@ -571,6 +571,8 @@ These would be the most suitable candidates for an investor aiming to track mark
 
 # Conclusion
 
-While PCA identifies PC1 as the dominant market-wide factor, factor models allow us to quantify how strongly each stock and industry loads on latent factors, and to evaluate the degree of uniqueness (idiosyncratic variation) that is not explained by systematic influences.
+This report uses PCA and factor analysis to separate systematic from idiosyncratic variation in NYSE stock returns. PC1 aligns closely with the market, confirming it captures broad co-movement. While Mining (B) loads highest on Factor 1, Finance (H) is the most systematically driven sector overall, with low uniqueness and strong exposure across all factors. 
+
+Most industries move with common factors, though Manufacturing and Retail show greater heterogeneity. Based on low uniqueness and high factor loadings, we recommend five Finance stocks—H90000, H88215, H75157, H89050, and H77466—for investors seeking market-tracking exposure. These stocks reflect systematic risk most clearly and offer the strongest alignment with overall market dynamics.
 
 
