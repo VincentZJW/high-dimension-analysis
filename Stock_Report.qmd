@@ -559,6 +559,8 @@ These would be the most suitable candidates for an investor aiming to track mark
 
 - Stationarity. Stock return distributions and their covariance structure are assumed to be approximately stationary across the 2005–2019 sample period.
 
+- FA assumes that the variance of each observed variable can be decomposed into common variance (shared with other variables, explained by factors) and unique variance (idiosyncratic, not explained by factors).
+
 - Linearity of relationships. PCA/FA assume linear correlation structures among returns. Nonlinear dependencies (volatility clustering, tail co-movements) are not captured.
 
 - Selection practicality. The five-stock portfolio is concentrated (all H in the strict “most systematic” sense). If mandate requires sector diversification, expect a trade-off between tracking the market and spreading sector risk.
